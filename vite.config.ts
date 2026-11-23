@@ -17,7 +17,10 @@ function ouagxPushSyncPlugin(): Plugin {
         if (!req.url) return next();
 
         // Force exact Android APK MIME & download filename so browsers never rename to .zip
-        if (req.url.includes('/downloads/GreenSAGA-v2.6.0.apk') && req.method === 'GET') {
+        if (
+          req.url.includes('/downloads/GreenSAGA-v2.6.0.apk') &&
+          (req.method === 'GET' || req.method === 'HEAD')
+        ) {
           const candidates = [
             path.resolve(__dirname, 'public', 'downloads', 'GreenSAGA-v2.6.0.apk'),
             path.resolve(__dirname, 'releases', 'GreenSAGA-com.ouagx.myapp-release.apk'),
@@ -29,6 +32,11 @@ function ouagxPushSyncPlugin(): Plugin {
             res.setHeader('Content-Disposition', 'attachment; filename="GreenSAGA-v2.6.0.apk"');
             res.setHeader('Content-Length', String(stat.size));
             res.setHeader('Cache-Control', 'no-cache');
+            if (req.method === 'HEAD') {
+              res.statusCode = 200;
+              res.end();
+              return;
+            }
             fs.createReadStream(apkPath).pipe(res);
             return;
           }
