@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   AlertTriangle,
   Award,
@@ -6,7 +6,9 @@ import {
   Globe,
   LogOut,
   Map,
+  Maximize2,
   Megaphone,
+  Minimize2,
   Play,
   RotateCcw,
   Smartphone,
@@ -28,6 +30,8 @@ interface LandingPageProps {
   savedGame: GameState | null;
   adminConfig: AdminConfig;
   currentAccount: PlayerAccount | null;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
   onChangeLanguage: (lang: Language) => void;
   onContinue: () => void;
   onNewGame: () => void;
@@ -41,6 +45,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   savedGame,
   adminConfig,
   currentAccount,
+  isFullscreen,
+  onToggleFullscreen,
   onChangeLanguage,
   onContinue,
   onNewGame,
@@ -48,8 +54,36 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onSignOutAccount,
   onClickAd,
 }) => {
+  const [downloadingApk, setDownloadingApk] = useState(false);
+  const [apkError, setApkError] = useState<string | null>(null);
   const theme = getActiveTheme(adminConfig);
   const landingAds = adminConfig.ads.filter((a) => a.active && a.placement === 'landing_banner');
+
+  const handleDownloadApk = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (downloadingApk) return;
+    setApkError(null);
+    setDownloadingApk(true);
+    try {
+      const res = await fetch('./downloads/GreenSAGA-v2.6.0.apk', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = await res.arrayBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.android.package-archive' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'GreenSAGA-v2.6.0.apk';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch {
+      setApkError('Could not fetch APK automatically — opening direct download link.');
+      window.location.href = './downloads/GreenSAGA-v2.6.0.apk';
+    } finally {
+      setDownloadingApk(false);
+    }
+  };
 
   const apkLabel =
     language === 'fr'
@@ -202,6 +236,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             )}
 
             <button
+              className="rpg-btn rpg-btn-neutral"
+              style={{ padding: '7px 9px' }}
+              onClick={onToggleFullscreen}
+              title={isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'}
+            >
+              {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+
+            <button
               className="rpg-btn rpg-btn-primary"
               style={{ padding: '7px 14px', fontSize: 13 }}
               onClick={savedGame ? onContinue : onNewGame}
@@ -255,15 +298,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </button>
             )}
 
-            <a
-              href="./downloads/GreenSAGA-v2.6.0.apk"
-              download="GreenSAGA-v2.6.0.apk"
+            <button
+              type="button"
+              onClick={handleDownloadApk}
+              disabled={downloadingApk}
               className="rpg-btn rpg-btn-indigo"
-              style={{ fontSize: 15.5, padding: '13px 22px', textDecoration: 'none' }}
+              style={{ fontSize: 15.5, padding: '13px 22px' }}
             >
-              <Download size={17} /> {apkLabel}
-            </a>
+              <Download size={17} /> {downloadingApk ? 'Preparing APK...' : apkLabel}
+            </button>
           </div>
+          {apkError && (
+            <div style={{ marginTop: -16, marginBottom: 14, fontSize: 12.5, color: '#fef08a', fontWeight: 700 }}>
+              {apkError}
+            </div>
+          )}
 
           {/* Valley Highlight Stats */}
           <div className="hero-stats-grid">
@@ -478,14 +527,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
 
-            <a
-              href="./downloads/GreenSAGA-v2.6.0.apk"
-              download="GreenSAGA-v2.6.0.apk"
+            <button
+              type="button"
+              onClick={handleDownloadApk}
+              disabled={downloadingApk}
               className="rpg-btn rpg-btn-primary"
-              style={{ fontSize: 15.5, padding: '13px 24px', textDecoration: 'none' }}
+              style={{ fontSize: 15.5, padding: '13px 24px' }}
             >
-              <Download size={18} /> {apkLabel} (.apk)
-            </a>
+              <Download size={18} /> {downloadingApk ? 'Downloading...' : `${apkLabel} (.apk)`}
+            </button>
           </div>
         </div>
       </section>

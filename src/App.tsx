@@ -132,6 +132,7 @@ export default function App() {
   const [adminAuthed, setAdminAuthed] = useState(() => isAdminAuthenticated());
   const [currentAccount, setCurrentAccount] = useState<PlayerAccount | null>(() => getCurrentAccount());
   const [authModalMode, setAuthModalMode] = useState<'register' | 'login' | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [pushBanner, setPushBanner] = useState<{ title: string; body: string; revision: number } | null>(null);
   const [savedPreview, setSavedPreview] = useState<GameState | null>(() => loadGame());
   const [language, setLanguage] = useState<Language>(() => loadGame()?.language ?? 'en');
@@ -202,6 +203,43 @@ export default function App() {
   const handleAdminLogout = useCallback(() => {
     logoutAdmin();
     setAdminAuthed(false);
+  }, []);
+
+  const handleToggleFullscreen = useCallback(() => {
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element;
+      webkitExitFullscreen?: () => Promise<void>;
+    };
+    const rootEl = document.documentElement as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void>;
+    };
+    const active = Boolean(document.fullscreenElement || doc.webkitFullscreenElement);
+    if (!active) {
+      if (rootEl.requestFullscreen) {
+        rootEl.requestFullscreen().catch(() => {});
+      } else if (rootEl.webkitRequestFullscreen) {
+        rootEl.webkitRequestFullscreen().catch(() => {});
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if (doc.webkitExitFullscreen) {
+        doc.webkitExitFullscreen().catch(() => {});
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => {
+      const doc = document as Document & { webkitFullscreenElement?: Element };
+      setIsFullscreen(Boolean(document.fullscreenElement || doc.webkitFullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      document.removeEventListener('webkitfullscreenchange', onFsChange);
+    };
   }, []);
 
   // Listen to browser navigation for hidden /admin path
@@ -841,6 +879,8 @@ export default function App() {
       } else if (k === 'h') {
         soundEngine.playClick();
         setModal({ type: 'help' });
+      } else if (k === 'f') {
+        handleToggleFullscreen();
       } else if (k >= '1' && k <= '9') {
         const idx = Number(k) - 1;
         if (idx < HOTBAR_SLOTS.length) {
@@ -1494,6 +1534,8 @@ export default function App() {
           savedGame={savedPreview}
           adminConfig={adminConfig}
           currentAccount={currentAccount}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
           onChangeLanguage={handleChangeLanguage}
           onNewGame={startNewGame}
           onContinue={continueGame}
@@ -1563,6 +1605,8 @@ export default function App() {
         onClickAd={handleClickAd}
         onSleep={handleSleep}
         onToggleMute={handleToggleMute}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={handleToggleFullscreen}
         onOpenHelp={() => {
           soundEngine.playClick();
           setModal({ type: 'help' });

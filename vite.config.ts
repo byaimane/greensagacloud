@@ -16,6 +16,24 @@ function ouagxPushSyncPlugin(): Plugin {
       server.middlewares.use((req, res, next) => {
         if (!req.url) return next();
 
+        // Force exact Android APK MIME & download filename so browsers never rename to .zip
+        if (req.url.includes('/downloads/GreenSAGA-v2.6.0.apk') && req.method === 'GET') {
+          const candidates = [
+            path.resolve(__dirname, 'public', 'downloads', 'GreenSAGA-v2.6.0.apk'),
+            path.resolve(__dirname, 'releases', 'GreenSAGA-com.ouagx.myapp-release.apk'),
+          ];
+          const apkPath = candidates.find((p) => fs.existsSync(p));
+          if (apkPath) {
+            const stat = fs.statSync(apkPath);
+            res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+            res.setHeader('Content-Disposition', 'attachment; filename="GreenSAGA-v2.6.0.apk"');
+            res.setHeader('Content-Length', String(stat.size));
+            res.setHeader('Cache-Control', 'no-cache');
+            fs.createReadStream(apkPath).pipe(res);
+            return;
+          }
+        }
+
         if (req.url.startsWith('/api/app-config') || req.url.startsWith('/api/push-update')) {
           res.setHeader('Access-Control-Allow-Origin', '*');
           res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');

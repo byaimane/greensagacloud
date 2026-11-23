@@ -8,7 +8,9 @@ import {
   HelpCircle,
   Home,
   Map,
+  Maximize2,
   Megaphone,
+  Minimize2,
   Moon,
   ScrollText,
   Store,
@@ -50,6 +52,8 @@ interface HUDProps {
   onClickAd: (adId: string) => void;
   onSleep: () => void;
   onToggleMute: () => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
   onOpenHelp: () => void;
   onChangeLanguage: (lang: Language) => void;
   onGoHome: () => void;
@@ -83,6 +87,8 @@ export const HUD: React.FC<HUDProps> = ({
   onClickAd,
   onSleep,
   onToggleMute,
+  isFullscreen,
+  onToggleFullscreen,
   onOpenHelp,
   onChangeLanguage,
   onGoHome,
@@ -268,6 +274,13 @@ export const HUD: React.FC<HUDProps> = ({
               style={{ background: 'transparent', border: 'none', color: '#fefce8', cursor: 'pointer', padding: 2, display: 'flex' }}
             >
               {state.muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
+            <button
+              title={isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'}
+              onClick={onToggleFullscreen}
+              style={{ background: 'transparent', border: 'none', color: '#86efac', cursor: 'pointer', padding: 2, display: 'flex' }}
+            >
+              {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
             <button
               title="Help (H)"
