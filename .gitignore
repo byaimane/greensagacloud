@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Production build
+dist/
+
+# Environment & secrets
+.env
+.env.local
+android/local.properties
+android/*.jks
+server/live-app-config.json
+
+# Android Gradle caches & build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+releases/*.apk
+releases/*.aab
+data/*.db*
+
+# Logs & OS files
+*.log
+.DS_Store
+Thumbs.db
