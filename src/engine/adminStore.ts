@@ -128,7 +128,7 @@ function createDefaultLevelOverrides(): LevelOverride[] {
 const DEFAULT_ADS: AdCampaign[] = [
   {
     id: 'ad_harvest_fest',
-    title: 'OUAGX Harvest Pass · Season 1',
+    title: 'GreenSAGA Harvest Pass · Season 1',
     description: 'Unlock golden sprinklers, exclusive orchard trees & double weekend XP!',
     ctaLabel: 'Explore Market',
     targetUrl: '#shop',
@@ -167,8 +167,8 @@ const DEFAULT_ADS: AdCampaign[] = [
 const DEFAULT_USERS: ManagedUser[] = [
   {
     id: 'usr_self',
-    username: 'Farmer OUAGX',
-    email: 'admin@ouagx.valley',
+    username: 'Farmer GreenSAGA',
+    email: 'admin@greensaga.valley',
     role: 'admin',
     status: 'active',
     level: 1,
@@ -180,7 +180,7 @@ const DEFAULT_USERS: ManagedUser[] = [
   {
     id: 'usr_amine',
     username: 'Amine',
-    email: 'amine@ouagx.valley',
+    email: 'amine@greensaga.valley',
     role: 'vip',
     status: 'active',
     level: 5,
@@ -191,7 +191,7 @@ const DEFAULT_USERS: ManagedUser[] = [
   {
     id: 'usr_claire',
     username: 'Claire',
-    email: 'claire@ouagx.valley',
+    email: 'claire@greensaga.valley',
     role: 'vip',
     status: 'active',
     level: 7,
@@ -202,7 +202,7 @@ const DEFAULT_USERS: ManagedUser[] = [
   {
     id: 'usr_yasmine',
     username: 'Yasmine',
-    email: 'yasmine@ouagx.valley',
+    email: 'yasmine@greensaga.valley',
     role: 'player',
     status: 'active',
     level: 6,
@@ -213,7 +213,7 @@ const DEFAULT_USERS: ManagedUser[] = [
   {
     id: 'usr_leo',
     username: 'Leo',
-    email: 'leo@ouagx.valley',
+    email: 'leo@greensaga.valley',
     role: 'player',
     status: 'active',
     level: 9,
@@ -228,7 +228,7 @@ const DEFAULT_PLUGINS: PluginEntry[] = [
     id: 'auto_harvest_aura',
     name: 'Auto-Harvest Magnet',
     version: '1.2.0',
-    author: 'OUAGX Core',
+    author: 'GreenSAGA Core',
     category: 'gameplay',
     description: 'Automatically harvests ripe crops as your farmer walks right next to them.',
     enabled: false,
@@ -237,7 +237,7 @@ const DEFAULT_PLUGINS: PluginEntry[] = [
     id: 'minimap_radar',
     name: 'Live Valley Mini-Map Radar',
     version: '2.0.1',
-    author: 'OUAGX Core',
+    author: 'GreenSAGA Core',
     category: 'ui',
     description: 'Shows a live tactical mini-map radar in the bottom-right corner of the canvas.',
     enabled: true,
@@ -264,7 +264,7 @@ const DEFAULT_PLUGINS: PluginEntry[] = [
     id: 'realtime_chat_filter',
     name: 'Cozy Chat Moderator',
     version: '1.3.0',
-    author: 'OUAGX Safety',
+    author: 'GreenSAGA Safety',
     category: 'social',
     description: 'Automatically keeps Multiplayer Valley Chat family-friendly.',
     enabled: true,
@@ -273,7 +273,7 @@ const DEFAULT_PLUGINS: PluginEntry[] = [
     id: 'starter_welcome_pack',
     name: 'VIP Starter Welcome Pack',
     version: '1.0.0',
-    author: 'OUAGX Core',
+    author: 'GreenSAGA Core',
     category: 'economy',
     description: 'Grants +250g bonus gold and +5 Rich Fertilizer whenever starting a new farm.',
     enabled: false,
@@ -362,6 +362,7 @@ export function loadAdminConfig(): AdminConfig {
     if (!raw) return createDefaultAdminConfig();
     const parsed = JSON.parse(raw) as Partial<AdminConfig>;
     const def = createDefaultAdminConfig();
+    const rebrand = (s: string) => s.replace(/OUAGX/g, 'GreenSAGA').replace(/ouagx\.valley/gi, 'greensaga.valley');
     const migratedBrand =
       !parsed.brandName || parsed.brandName === 'OUAGX' || parsed.brandName === 'GreenSaga'
         ? 'GreenSAGA'
@@ -370,19 +371,35 @@ export function loadAdminConfig(): AdminConfig {
       !parsed.copyrightText || parsed.copyrightText.includes('OUAGX')
         ? def.copyrightText
         : parsed.copyrightText;
+    const migratedAds = (parsed.ads ?? def.ads).map((a) => ({
+      ...a,
+      title: rebrand(a.title),
+      description: rebrand(a.description),
+    }));
+    const migratedUsers = (parsed.users ?? def.users).map((u) => ({
+      ...u,
+      username: rebrand(u.username),
+      email: rebrand(u.email),
+    }));
+    const migratedPlugins = (parsed.plugins ?? def.plugins).map((p) => ({
+      ...p,
+      author: rebrand(p.author),
+      description: rebrand(p.description),
+    }));
     return {
       ...def,
       ...parsed,
       brandName: migratedBrand,
       copyrightText: migratedCopy,
+      announcement: rebrand(parsed.announcement ?? ''),
       pushServerUrl: parsed.pushServerUrl || def.pushServerUrl,
       pushRevision: parsed.pushRevision ?? 0,
       pushHistory: parsed.pushHistory ?? [],
       economy: { ...def.economy, ...(parsed.economy ?? {}) },
       levelOverrides: parsed.levelOverrides?.length === 10 ? parsed.levelOverrides : def.levelOverrides,
-      ads: parsed.ads ?? def.ads,
-      users: parsed.users ?? def.users,
-      plugins: parsed.plugins ?? def.plugins,
+      ads: migratedAds,
+      users: migratedUsers,
+      plugins: migratedPlugins,
       maps: parsed.maps ?? def.maps,
     };
   } catch {

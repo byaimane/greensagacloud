@@ -151,7 +151,7 @@ export default function App() {
     {
       id: 'welcome_1',
       sender: 'Valley',
-      text: 'Welcome to OUAGX Multiplayer Plaza! Open another tab with the same Room Code to see live players!',
+      text: 'Welcome to GreenSAGA Multiplayer Plaza! Open another tab with the same Room Code to see live players!',
       time: nowTimeStr(),
       system: true,
     },

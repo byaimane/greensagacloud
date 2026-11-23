@@ -45,7 +45,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             textShadow: '0 3px 0 #fde047',
           }}
         >
-          OUAGX
+          GreenSAGA
         </h1>
 
         <p style={{ margin: '0 0 22px', color: '#57534e', fontSize: 15, lineHeight: 1.5 }}>
@@ -117,7 +117,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             onClick={onNewGame}
           >
             {savedGame ? <RotateCcw size={17} /> : <Play size={18} fill="currentColor" />}
-            {savedGame ? 'Start New Farm' : 'Start Farming in OUAGX'}
+            {savedGame ? 'Start New Farm' : 'Start Farming in GreenSAGA'}
           </button>
         </div>
 

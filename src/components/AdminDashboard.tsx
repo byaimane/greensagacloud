@@ -249,7 +249,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const item: AdCampaign = {
       id: `ad_${Date.now()}`,
       title: newAdTitle.trim(),
-      description: newAdDesc.trim() || 'Featured OUAGX Valley promotion.',
+      description: newAdDesc.trim() || 'Featured GreenSAGA Valley promotion.',
       ctaLabel: newAdCta.trim() || 'Open',
       targetUrl: newAdPlacement === 'shop_banner' ? '#shop' : '#map',
       placement: newAdPlacement,
@@ -270,7 +270,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const u: ManagedUser = {
       id: `usr_${Date.now()}`,
       username: newUserName.trim(),
-      email: newUserEmail.trim() || `${newUserName.trim().toLowerCase().replace(/\s+/g, '')}@ouagx.valley`,
+      email: newUserEmail.trim() || `${newUserName.trim().toLowerCase().replace(/\s+/g, '')}@greensaga.valley`,
       role: newUserRole,
       status: 'active',
       level: 1,
@@ -349,10 +349,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ouagx-admin-config.json`;
+    a.download = `greensaga-admin-config.json`;
     a.click();
     URL.revokeObjectURL(url);
-    flash('Exported ouagx-admin-config.json!');
+    flash('Exported greensaga-admin-config.json!');
   };
 
   const handleImportJson = () => {
@@ -554,7 +554,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     Global Announcement Ticker (shown on Landing Page & Game):
                     <input
                       className="admin-input"
-                      placeholder="e.g. 🎉 Double XP Weekend is LIVE across OUAGX Valley!"
+                      placeholder="e.g. 🎉 Double XP Weekend is LIVE across GreenSAGA Valley!"
                       value={config.announcement}
                       onChange={(e) => onUpdateConfig({ ...config, announcement: e.target.value })}
                     />
@@ -1279,7 +1279,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <input
                       className="admin-input"
                       value={config.brandName}
-                      onChange={(e) => onUpdateConfig({ ...config, brandName: e.target.value || 'OUAGX' })}
+                      onChange={(e) => onUpdateConfig({ ...config, brandName: e.target.value || 'GreenSAGA' })}
                     />
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 700 }}>
@@ -1468,7 +1468,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <textarea
                     className="admin-input"
                     rows={4}
-                    placeholder='{"brandName": "OUAGX", ...}'
+                    placeholder='{"brandName": "GreenSAGA", ...}'
                     value={importText}
                     onChange={(e) => setImportText(e.target.value)}
                   />
