@@ -295,6 +295,63 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                 </button>
               </div>
 
+              {/* Live AI & Player Valley Leaderboard */}
+              <div
+                style={{
+                  background: '#fff',
+                  border: '2px solid #e7e5e4',
+                  borderRadius: 12,
+                  padding: '8px 10px',
+                }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 12, color: '#78350f', marginBottom: 6 }}>
+                  🏆 Live Valley Players ({remoteFarmers.length + 1} Active)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 105, overflowY: 'auto' }}>
+                  {[
+                    {
+                      id: 'you',
+                      name: `${player.name} (You)`,
+                      level: player.level,
+                      gold: player.gold,
+                      activity: 'Playing Live',
+                      isAi: false,
+                    },
+                    ...remoteFarmers.map((rf) => ({
+                      id: rf.id,
+                      name: rf.name,
+                      level: rf.level,
+                      gold: rf.gold ?? rf.level * 240,
+                      activity: rf.activity || 'Exploring',
+                      isAi: !rf.isRealPlayer,
+                    })),
+                  ]
+                    .sort((a, b) => b.gold - a.gold)
+                    .map((entry, idx) => (
+                      <div
+                        key={entry.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: 11.5,
+                          padding: '3px 6px',
+                          borderRadius: 8,
+                          background: entry.id === 'you' ? '#fef9c3' : '#f8fafc',
+                        }}
+                      >
+                        <span style={{ fontWeight: 800 }}>
+                          #{idx + 1} {entry.isAi ? '🤖' : '⭐'} {entry.name}{' '}
+                          <span style={{ fontWeight: 600, color: '#64748b' }}>({entry.activity})</span>
+                        </span>
+                        <span style={{ fontWeight: 800, color: '#ca8a04' }}>
+                          Lv.{entry.level} · {entry.gold.toLocaleString()}g
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
               {/* Live Valley Chat */}
               <div className="chat-box">
                 <div style={{ fontWeight: 800, fontSize: 12.5, color: '#78350f', marginBottom: 6 }}>

@@ -4,6 +4,7 @@ import { soundEngine } from './audio/soundEngine';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AdminLogin } from './components/AdminLogin';
 import { ArtisanModal } from './components/ArtisanModal';
+import { AuthModal } from './components/AuthModal';
 import { BagModal } from './components/BagModal';
 import { DaySummaryModal } from './components/DaySummaryModal';
 import { HUD } from './components/HUD';
@@ -15,7 +16,12 @@ import { QuestLogModal } from './components/QuestLogModal';
 import { ShopModal } from './components/ShopModal';
 import { TutorialOverlay } from './components/TutorialOverlay';
 import { CROPS, xpRequiredForLevel } from './data/crops';
-import { createInitialBotFarmers, NPC_LIST } from './data/npcs';
+import { AI_CHAT_LINES, AI_WAYPOINTS, createInitialBotFarmers, NPC_LIST } from './data/npcs';
+import {
+  getCurrentAccount,
+  PlayerAccount,
+  signOutPlayerAccount,
+} from './engine/accountStore';
 import {
   isPositionBlocked,
   LANDMARKS,
@@ -124,6 +130,8 @@ export default function App() {
   });
   const [adminRouteActive, setAdminRouteActive] = useState(() => isAdminRoute());
   const [adminAuthed, setAdminAuthed] = useState(() => isAdminAuthenticated());
+  const [currentAccount, setCurrentAccount] = useState<PlayerAccount | null>(() => getCurrentAccount());
+  const [authModalMode, setAuthModalMode] = useState<'register' | 'login' | null>(null);
   const [pushBanner, setPushBanner] = useState<{ title: string; body: string; revision: number } | null>(null);
   const [savedPreview, setSavedPreview] = useState<GameState | null>(() => loadGame());
   const [language, setLanguage] = useState<Language>(() => loadGame()?.language ?? 'en');
@@ -630,6 +638,11 @@ export default function App() {
 
   const startNewGame = () => {
     const fresh = createInitialState(language);
+    if (currentAccount) {
+      fresh.player.name = currentAccount.username;
+      fresh.player.shirtColor = currentAccount.shirtColor;
+      fresh.player.hatColor = currentAccount.hatColor;
+    }
     if (isPluginEnabled(adminConfigRef.current, 'starter_welcome_pack')) {
       fresh.player.gold += 250;
       addItem(fresh, 'fertilizer', 5);
@@ -646,6 +659,56 @@ export default function App() {
     setStarted(true);
     setModal({ type: 'help' });
     forceUiSync();
+  };
+
+  const handleAccountAuthenticated = (account: PlayerAccount, isNew: boolean) => {
+    setCurrentAccount(account);
+    setAuthModalMode(null);
+    // Register into Admin Users directory if new
+    if (!adminConfigRef.current.users.some((u) => u.email.toLowerCase() === account.email.toLowerCase())) {
+      const nextAdmin: AdminConfig = {
+        ...adminConfigRef.current,
+        users: [
+          ...adminConfigRef.current.users,
+          {
+            id: account.id,
+            username: account.username,
+            email: account.email,
+            role: 'player',
+            status: 'active',
+            level: 1,
+            gold: 180,
+            day: 1,
+            joinedDate: account.createdAt,
+          },
+        ],
+      };
+      handleUpdateAdminConfig(nextAdmin);
+    }
+
+    const existing = loadGame();
+    const targetState = existing ?? createInitialState(language);
+    targetState.player.name = account.username;
+    targetState.player.shirtColor = account.shirtColor;
+    targetState.player.hatColor = account.hatColor;
+    targetState.language = language;
+    stateRef.current = targetState;
+    saveGame(targetState);
+    syncPlayerSaveToSupabase(targetState).catch(() => {});
+    setSavedPreview({ ...targetState });
+    soundEngine.playLevelUp();
+    setStarted(true);
+    if (isNew && !existing) {
+      setModal({ type: 'help' });
+    }
+    showToast(`🌾 Welcome, ${account.username}! Account linked & ready.`);
+    forceUiSync();
+  };
+
+  const handleSignOutAccount = async () => {
+    await signOutPlayerAccount();
+    setCurrentAccount(null);
+    showToast('Signed out cleanly.');
   };
 
   const handleLiveGameAction = useCallback(
@@ -888,27 +951,52 @@ export default function App() {
               }
             }
 
-            // Simulate bot farmers gently wandering inside the Multiplayer Plaza
+            // Autonomous AI Players actively farming, trading & exploring across the Valley!
             for (const rf of remoteFarmersRef.current) {
               if ((rf.emoteTimer ?? 0) > 0) {
                 rf.emoteTimer = Math.max(0, (rf.emoteTimer ?? 0) - dt);
               }
               if (rf.isRealPlayer) continue;
+
+              rf.aiTimer = (rf.aiTimer ?? 5) - dt;
               const dx = rf.targetX - rf.x;
               const dy = rf.targetY - rf.y;
               const dist = Math.hypot(dx, dy);
-              if (dist < 0.12) {
-                if (Math.random() < dt * 0.4) {
-                  rf.targetX = 29.8 + Math.random() * 5.2;
-                  rf.targetY = 8.4 + Math.random() * 6.0;
-                  // Keep bots out of central fountain
-                  if (Math.hypot(rf.targetX - 32.5, rf.targetY - 11.1) < 1.5) {
-                    rf.targetX = 30.2;
+
+              if (dist < 0.16) {
+                if (rf.aiTimer <= 0) {
+                  const wp = AI_WAYPOINTS[Math.floor(Math.random() * AI_WAYPOINTS.length)];
+                  rf.targetX = wp.x + (Math.random() - 0.5) * 1.4;
+                  rf.targetY = wp.y + (Math.random() - 0.5) * 1.2;
+                  rf.activity = wp.activity;
+                  rf.emote = wp.emote;
+                  rf.emoteTimer = 2.6;
+                  rf.gold = (rf.gold ?? 500) + 15 + Math.floor(Math.random() * 45);
+                  if (rf.level < 10 && Math.random() < 0.08) {
+                    rf.level += 1;
+                    rf.emote = '⭐';
+                  }
+                  rf.aiTimer = 4 + Math.random() * 6;
+
+                  // Occasional friendly live AI chat message!
+                  if (Math.random() < 0.16) {
+                    const line = AI_CHAT_LINES[Math.floor(Math.random() * AI_CHAT_LINES.length)];
+                    setChatMessages((prev) => [
+                      ...prev.slice(-24),
+                      { id: `ai_${Date.now()}_${rf.id}`, sender: `🤖 ${rf.name}`, text: line, time: nowTimeStr() },
+                    ]);
                   }
                 }
               } else {
-                rf.x += (dx / dist) * 1.15 * dt;
-                rf.y += (dy / dist) * 1.15 * dt;
+                const mx = (dx / dist) * 1.45 * dt;
+                const my = (dy / dist) * 1.45 * dt;
+                if (!isPositionBlocked(rf.x + mx, rf.y)) rf.x += mx;
+                if (!isPositionBlocked(rf.x, rf.y + my)) rf.y += my;
+                if (isPositionBlocked(rf.x + mx, rf.y) && isPositionBlocked(rf.x, rf.y + my)) {
+                  rf.targetX = rf.x;
+                  rf.targetY = rf.y;
+                  rf.aiTimer = 1.2;
+                }
                 rf.facing = Math.abs(dx) > Math.abs(dy) ? (dx >= 0 ? 'right' : 'left') : dy >= 0 ? 'down' : 'up';
               }
             }
@@ -1087,6 +1175,28 @@ export default function App() {
           state.player.targetX = tree.x;
           state.player.targetY = tree.y + 0.9;
           pendingActionRef.current = { kind: 'orchard', x: tree.x, y: tree.y, id: `orchard:${tree.id}` };
+        }
+        return;
+      }
+    }
+
+    // 1.5. Click on AI / Online Farmers to wave & earn friendly co-op bonus!
+    for (const rf of remoteFarmersRef.current) {
+      if (Math.hypot(wx - rf.x, wy - (rf.y - 0.35)) < 1.0) {
+        rf.emote = '👋';
+        rf.emoteTimer = 2.8;
+        soundEngine.playHarvest();
+        spawnParticles(rf.x - 0.5, rf.y - 0.6, '#f472b6', 6, 'heart');
+        if (!rf.wavedToday) {
+          rf.wavedToday = true;
+          state.player.gold += 20;
+          state.stats.goldEarned += 20;
+          spawnFloatingText(rf.x - 0.5, rf.y - 1.0, `👋 ${rf.name}: +20g!`, '#fde047');
+          showToast(`🤖 ${rf.name} (${rf.activity || 'Farmer'}) waved back! +20g friendly bonus!`);
+          saveGame(state);
+          forceUiSync();
+        } else {
+          spawnFloatingText(rf.x - 0.5, rf.y - 1.0, `👋 Hi from ${rf.name}!`, '#93c5fd');
         }
         return;
       }
@@ -1383,11 +1493,23 @@ export default function App() {
           language={language}
           savedGame={savedPreview}
           adminConfig={adminConfig}
+          currentAccount={currentAccount}
           onChangeLanguage={handleChangeLanguage}
           onNewGame={startNewGame}
           onContinue={continueGame}
+          onOpenAuth={(mode) => setAuthModalMode(mode)}
+          onSignOutAccount={handleSignOutAccount}
           onClickAd={handleClickAd}
         />
+        {authModalMode && (
+          <AuthModal
+            brandName={adminConfig.brandName}
+            language={language}
+            initialMode={authModalMode}
+            onAuthenticated={handleAccountAuthenticated}
+            onClose={() => setAuthModalMode(null)}
+          />
+        )}
       </>
     );
   }

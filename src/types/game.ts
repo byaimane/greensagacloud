@@ -167,6 +167,10 @@ export interface RemoteFarmer {
   id: string;
   name: string;
   level: number;
+  gold?: number;
+  activity?: string;
+  aiTimer?: number;
+  wavedToday?: boolean;
   room: string;
   x: number;
   y: number;
@@ -215,6 +219,8 @@ export interface Particle {
 export interface PlayerState {
   name: string;
   roomCode: string;
+  shirtColor?: string;
+  hatColor?: string;
   x: number;
   y: number;
   facing: Direction;

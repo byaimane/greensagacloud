@@ -1469,7 +1469,7 @@ function drawRemoteFarmer(ctx: CanvasRenderingContext2D, rf: RemoteFarmer, T: nu
   ctx.fillRect(2, -27 - bob, 2.2, 2.5);
 
   // Online pill tag
-  const tag = `${rf.name} · Lv.${rf.level}`;
+  const tag = `${rf.isRealPlayer ? '' : '🤖 '}${rf.name} · Lv.${rf.level}`;
   ctx.font = '700 10.5px Nunito, sans-serif';
   const tw = ctx.measureText(tag).width + 14;
   drawRoundedRect(ctx, -tw / 2, 11, tw, 17, 8);
@@ -1582,7 +1582,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState, T: number, 
   ctx.fillRect(-6, -3 + legSwing * 0.5, 5, 10);
   ctx.fillRect(1, -3 - legSwing * 0.5, 5, 10);
 
-  ctx.fillStyle = '#ef4444';
+  ctx.fillStyle = p.shirtColor || '#ef4444';
   drawRoundedRect(ctx, -10, -20 - bob, 20, 19, 6);
   ctx.fill();
   ctx.fillStyle = '#2563eb';
@@ -1601,7 +1601,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState, T: number, 
     ctx.fillRect(2 + ex, -28 - bob, 2.3, 2.8);
   }
 
-  ctx.fillStyle = p.level >= 10 ? '#fde047' : '#facc15';
+  ctx.fillStyle = p.hatColor || (p.level >= 10 ? '#fde047' : '#facc15');
   ctx.beginPath();
   ctx.ellipse(0, -34 - bob, 16, 5.5, 0, 0, Math.PI * 2);
   ctx.fill();

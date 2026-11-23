@@ -2,17 +2,22 @@ import React from 'react';
 import {
   AlertTriangle,
   Award,
+  Download,
   Globe,
+  LogOut,
   Map,
   Megaphone,
   Play,
   RotateCcw,
+  Smartphone,
   Sparkles,
   Sprout,
   Tractor,
+  UserPlus,
   Users,
 } from 'lucide-react';
 import { LEVEL_MILESTONES } from '../data/crops';
+import { PlayerAccount } from '../engine/accountStore';
 import { getActiveTheme } from '../engine/adminStore';
 import { getLevelTitle, LANGUAGES, t } from '../i18n/translations';
 import { AdminConfig } from '../types/admin';
@@ -22,9 +27,12 @@ interface LandingPageProps {
   language: Language;
   savedGame: GameState | null;
   adminConfig: AdminConfig;
+  currentAccount: PlayerAccount | null;
   onChangeLanguage: (lang: Language) => void;
   onContinue: () => void;
   onNewGame: () => void;
+  onOpenAuth: (mode: 'register' | 'login') => void;
+  onSignOutAccount: () => void;
   onClickAd: (adId: string) => void;
 }
 
@@ -32,17 +40,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   language,
   savedGame,
   adminConfig,
+  currentAccount,
   onChangeLanguage,
   onContinue,
   onNewGame,
+  onOpenAuth,
+  onSignOutAccount,
   onClickAd,
 }) => {
   const theme = getActiveTheme(adminConfig);
   const landingAds = adminConfig.ads.filter((a) => a.active && a.placement === 'landing_banner');
 
+  const apkLabel =
+    language === 'fr'
+      ? 'Télécharger APK Android'
+      : language === 'ar'
+      ? 'تحميل تطبيق أندرويد APK'
+      : 'Download Android APK';
+
+  const createAccLabel =
+    language === 'fr' ? 'Créer un Compte' : language === 'ar' ? 'إنشاء حساب' : 'Create Account';
+
+  const signInLabel =
+    language === 'fr' ? 'Connexion' : language === 'ar' ? 'دخول' : 'Sign In';
+
   return (
     <div className="landing-page">
-      {/* Global Announcement or Maintenance Banner controlled by Admin */}
       {adminConfig.maintenanceMode && (
         <div
           style={{
@@ -58,7 +81,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             gap: 8,
           }}
         >
-          <AlertTriangle size={15} /> Scheduled Maintenance Notice — Gameplay remains previewable for Admins.
+          <AlertTriangle size={15} /> Scheduled Maintenance Notice — Gameplay remains previewable.
         </div>
       )}
 
@@ -85,10 +108,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <header className="landing-nav">
         <div className="landing-nav-inner">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div className="landing-logo-badge">🌾</div>
+            <img
+              src="./favicon.svg"
+              alt={adminConfig.brandName}
+              style={{ width: 38, height: 38, borderRadius: 10, boxShadow: '0 3px 0 #78350f' }}
+            />
             <span
               className="font-display"
-              style={{ fontSize: 24, fontWeight: 700, color: '#fef08a', letterSpacing: '0.05em' }}
+              style={{ fontSize: 24, fontWeight: 700, color: '#fef08a', letterSpacing: '0.04em' }}
             >
               {adminConfig.brandName}
             </span>
@@ -98,7 +125,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <a href="#features">{t(language, 'navFeatures')}</a>
             <a href="#levels">{t(language, 'navLevels')}</a>
             <a href="#multiplayer">{t(language, 'navMultiplayer')}</a>
-            <a href="#controls">{t(language, 'navControls')}</a>
+            <a href="#download-apk">Android APK</a>
           </nav>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -115,6 +142,65 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               ))}
             </div>
 
+            {currentAccount ? (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'rgba(255,255,255,0.14)',
+                  border: '1.5px solid #fde047',
+                  borderRadius: 999,
+                  padding: '4px 10px',
+                  color: '#fefce8',
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    background: currentAccount.shirtColor,
+                    border: '1.5px solid #fff',
+                  }}
+                />
+                <span>{currentAccount.username}</span>
+                <button
+                  onClick={onSignOutAccount}
+                  title="Sign Out"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#fca5a5',
+                    cursor: 'pointer',
+                    padding: 0,
+                    display: 'flex',
+                  }}
+                >
+                  <LogOut size={13} />
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  className="rpg-btn rpg-btn-neutral"
+                  style={{ padding: '6px 12px', fontSize: 12.5 }}
+                  onClick={() => onOpenAuth('login')}
+                >
+                  {signInLabel}
+                </button>
+                <button
+                  className="rpg-btn rpg-btn-gold"
+                  style={{ padding: '6px 12px', fontSize: 12.5 }}
+                  onClick={() => onOpenAuth('register')}
+                >
+                  <UserPlus size={14} /> {createAccLabel}
+                </button>
+              </>
+            )}
+
             <button
               className="rpg-btn rpg-btn-primary"
               style={{ padding: '7px 14px', fontSize: 13 }}
@@ -127,7 +213,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </header>
 
-      {/* Hero Section (Theme-Aware!) */}
+      {/* Hero Section */}
       <section className="landing-hero" style={{ background: theme.heroGradient }}>
         <div className="landing-container">
           <div className="hero-badge">
@@ -142,32 +228,41 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <>
                 <button
                   className="rpg-btn rpg-btn-primary"
-                  style={{ fontSize: 17, padding: '14px 26px' }}
+                  style={{ fontSize: 16.5, padding: '13px 24px' }}
                   onClick={onContinue}
                 >
-                  <Play size={19} fill="currentColor" />
+                  <Play size={18} fill="currentColor" />
                   {t(language, 'continueFarm')} ({t(language, 'day')} {savedGame.day} · {t(language, 'level')}{' '}
                   {savedGame.player.level} · {savedGame.player.gold}g)
                 </button>
                 <button
                   className="rpg-btn rpg-btn-gold"
-                  style={{ fontSize: 16, padding: '14px 22px' }}
+                  style={{ fontSize: 15.5, padding: '13px 20px' }}
                   onClick={onNewGame}
                 >
-                  <RotateCcw size={17} />
+                  <RotateCcw size={16} />
                   {t(language, 'newFarm')}
                 </button>
               </>
             ) : (
               <button
                 className="rpg-btn rpg-btn-primary"
-                style={{ fontSize: 18, padding: '15px 32px' }}
+                style={{ fontSize: 18, padding: '15px 30px' }}
                 onClick={onNewGame}
               >
                 <Play size={20} fill="currentColor" />
                 {t(language, 'playNow')}
               </button>
             )}
+
+            <a
+              href="./downloads/GreenSAGA-v2.6.0.apk"
+              download="GreenSAGA-v2.6.0.apk"
+              className="rpg-btn rpg-btn-indigo"
+              style={{ fontSize: 15.5, padding: '13px 22px', textDecoration: 'none' }}
+            >
+              <Download size={17} /> {apkLabel}
+            </a>
           </div>
 
           {/* Valley Highlight Stats */}
@@ -179,9 +274,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </span>
             </div>
             <div className="hero-stat-pill">
-              <span className="hero-stat-num">72</span>
+              <span className="hero-stat-num">6+</span>
               <span>
-                {language === 'fr' ? 'Parcelles Max' : language === 'ar' ? 'قطعة زراعية' : 'Max Farm Plots'}
+                {language === 'fr' ? 'Joueurs IA Actifs' : language === 'ar' ? 'لاعبو ذكاء اصطناعي' : 'Live AI Players'}
               </span>
             </div>
             <div className="hero-stat-pill">
@@ -191,10 +286,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </span>
             </div>
             <div className="hero-stat-pill">
-              <span className="hero-stat-num">{adminConfig.maps.length}</span>
-              <span>
-                {language === 'fr' ? 'Cartes & Thèmes' : language === 'ar' ? 'خرائط وثيمات' : 'Maps & Themes'}
-              </span>
+              <span className="hero-stat-num">APK</span>
+              <span>com.ouagx.myapp</span>
             </div>
           </div>
         </div>
@@ -205,11 +298,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <section style={{ background: '#fffdf5', padding: '22px 0 0' }}>
           <div className="landing-container">
             {landingAds.map((ad) => (
-              <div
-                key={ad.id}
-                className="ad-banner-card"
-                style={{ borderColor: ad.accentColor }}
-              >
+              <div key={ad.id} className="ad-banner-card" style={{ borderColor: ad.accentColor }}>
                 <div>
                   <span className="ad-sponsored-tag" style={{ background: ad.accentColor }}>
                     SPONSORED
@@ -300,7 +389,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* Multiplayer Map Showcase */}
+      {/* Multiplayer & AI Players Showcase */}
       <section id="multiplayer" className="landing-section">
         <div className="landing-container">
           <div className="rpg-panel mp-showcase-card">
@@ -319,7 +408,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   marginBottom: 10,
                 }}
               >
-                <Users size={14} /> LIVE VALLEY SYNC · ROOM CODES
+                <Users size={14} /> LIVE AI FARMERS & MULTIPLAYER VALLEY
               </div>
               <h2 className="font-display" style={{ margin: '0 0 10px', fontSize: 28, color: '#451a03' }}>
                 {t(language, 'mpSectionTitle')}
@@ -327,12 +416,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <p style={{ margin: '0 0 18px', color: '#57534e', lineHeight: 1.6, fontSize: 15 }}>
                 {t(language, 'mpSectionDesc')}
               </p>
-              <button
-                className="rpg-btn rpg-btn-primary"
-                onClick={savedGame ? onContinue : onNewGame}
-              >
-                <Map size={17} /> {t(language, 'playNow')}
-              </button>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button className="rpg-btn rpg-btn-primary" onClick={savedGame ? onContinue : onNewGame}>
+                  <Map size={17} /> {t(language, 'playNow')}
+                </button>
+                {!currentAccount && (
+                  <button className="rpg-btn rpg-btn-gold" onClick={() => onOpenAuth('register')}>
+                    <UserPlus size={16} /> {createAccLabel}
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="mp-mini-visual">
@@ -343,7 +436,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 🏘️ Village
               </div>
               <div className="mp-mini-pin" style={{ left: '80%', top: '50%', background: '#4f46e5' }}>
-                🌐 Plaza
+                🌐 Plaza (6 AI)
               </div>
               <div className="mp-mini-pin" style={{ left: '30%', top: '20%', background: '#d97706' }}>
                 🌾 Amine
@@ -359,16 +452,40 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* Controls Strip */}
-      <section id="controls" className="landing-section" style={{ paddingTop: 10, paddingBottom: 42 }}>
-        <div className="landing-container" style={{ textAlign: 'center' }}>
-          <div className="rpg-panel" style={{ padding: '18px 24px', display: 'inline-block', maxWidth: 860 }}>
-            <div className="font-display" style={{ fontWeight: 700, color: '#78350f', marginBottom: 6, fontSize: 17 }}>
-              {t(language, 'controlsTitle')}
+      {/* Dedicated Android APK Download Section */}
+      <section id="download-apk" className="landing-section landing-section-alt">
+        <div className="landing-container">
+          <div className="rpg-panel" style={{ padding: '24px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <img
+                src="./icon-192.png"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = './favicon.svg';
+                }}
+                alt="GreenSAGA Android App Icon"
+                style={{ width: 68, height: 68, borderRadius: 18, border: '3px solid #78350f', boxShadow: '0 6px 14px rgba(0,0,0,0.2)' }}
+              />
+              <div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 800, color: '#166534', background: '#dcfce7', padding: '2px 10px', borderRadius: 999, marginBottom: 4 }}>
+                  <Smartphone size={13} /> ANDROID APP · v2.6.0
+                </div>
+                <h3 className="font-display" style={{ margin: '0 0 4px', fontSize: 22, color: '#451a03' }}>
+                  {adminConfig.brandName} for Android
+                </h3>
+                <div style={{ fontSize: 13, color: '#57534e' }}>
+                  Package: <code>com.ouagx.myapp</code> · Signed APK · Cloud Supabase Sync & Live Push Updates
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: 13.5, color: '#57534e', fontWeight: 600 }}>
-              {t(language, 'controlsList')}
-            </div>
+
+            <a
+              href="./downloads/GreenSAGA-v2.6.0.apk"
+              download="GreenSAGA-v2.6.0.apk"
+              className="rpg-btn rpg-btn-primary"
+              style={{ fontSize: 15.5, padding: '13px 24px', textDecoration: 'none' }}
+            >
+              <Download size={18} /> {apkLabel} (.apk)
+            </a>
           </div>
         </div>
       </section>
@@ -377,8 +494,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <footer className="landing-footer">
         <div className="landing-container footer-inner">
           <div>
-            <div className="font-display" style={{ fontSize: 20, fontWeight: 700, color: '#fef08a' }}>
-              🌾 {adminConfig.brandName}
+            <div className="font-display" style={{ fontSize: 20, fontWeight: 700, color: '#fef08a', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <img src="./favicon.svg" alt="" style={{ width: 24, height: 24, borderRadius: 6 }} />
+              {adminConfig.brandName}
             </div>
             <div style={{ fontSize: 13, color: '#d6d3d1', marginTop: 4 }}>
               {t(language, 'copyrightSub')}
@@ -389,7 +507,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               {adminConfig.copyrightText || t(language, 'copyright')}
             </div>
             <div style={{ fontSize: 12, color: '#a8a29e', marginTop: 3 }}>
-              v2.5 · Theme: {theme.name} · EN / FR / العربية
+              v2.6 · Theme: {theme.name} · EN / FR / العربية
             </div>
           </div>
         </div>

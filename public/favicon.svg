@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4ade80"/>
+      <stop offset="55%" stop-color="#16a34a"/>
+      <stop offset="100%" stop-color="#14532d"/>
+    </linearGradient>
+    <linearGradient id="hat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="100%" stop-color="#eab308"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)" stroke="#78350f" stroke-width="3.5"/>
+  <circle cx="32" cy="36" r="17" fill="#fef9c3" opacity="0.22"/>
+  <!-- Sprouting leaves -->
+  <path d="M32 50 C32 38 32 32 32 28" stroke="#bbf7d0" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M32 42 C21 41 16 33 19 27 C25 27 31 33 32 42 Z" fill="#86efac" stroke="#14532d" stroke-width="1.5"/>
+  <path d="M32 40 C43 39 48 31 45 25 C39 25 33 31 32 40 Z" fill="#4ade80" stroke="#14532d" stroke-width="1.5"/>
+  <!-- Cozy Straw Hat Crest -->
+  <ellipse cx="32" cy="24" rx="19" ry="6" fill="url(#hat)" stroke="#78350f" stroke-width="2"/>
+  <path d="M21 23 C21 13 43 13 43 23 Z" fill="url(#hat)" stroke="#78350f" stroke-width="2"/>
+  <rect x="21" y="19.5" width="22" height="3.2" rx="1.5" fill="#dc2626"/>
+</svg>
