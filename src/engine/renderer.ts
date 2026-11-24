@@ -11,12 +11,18 @@ import {
   FIELD_ORIGIN_X,
   FIELD_ORIGIN_Y,
   FLOWERS,
+  isTileInExpansion,
+  LAKE_BOUNDS,
   LANDMARKS,
   MAP_COLS,
   MAP_ROWS,
   PEN_BOUNDS,
+  PIER_BOUNDS,
+  SOUTH_BRIDGE_Y_MAX,
+  SOUTH_BRIDGE_Y_MIN,
   TILE_SIZE,
   TREES,
+  WORLD_ESTATES,
 } from '../data/worldMap';
 import { getItemCount, getToolAffectedTiles, HOTBAR_SLOTS, tileKey } from './gameLogic';
 import { ThemePalette } from '../types/admin';
@@ -28,11 +34,13 @@ import {
   OrchardTree,
   Particle,
   RemoteFarmer,
+  VisitingFarmState,
 } from '../types/game';
 
 export interface RenderContextData {
   state: GameState;
   remoteFarmers: RemoteFarmer[];
+  visitingFarm?: VisitingFarmState | null;
   theme?: ThemePalette;
   butterfliesEnabled?: boolean;
   cameraX: number;
@@ -62,6 +70,7 @@ export function renderGameWorld(ctx: CanvasRenderingContext2D, data: RenderConte
   const {
     state,
     remoteFarmers,
+    visitingFarm = null,
     theme = THEME_PALETTES.emerald,
     butterfliesEnabled = true,
     cameraX,
@@ -82,9 +91,14 @@ export function renderGameWorld(ctx: CanvasRenderingContext2D, data: RenderConte
 
   ctx.translate(-Math.round(cameraX), -Math.round(cameraY));
 
-  // 1. Grass meadow base (themed!)
-  for (let y = 0; y < MAP_ROWS; y++) {
-    for (let x = 0; x < MAP_COLS; x++) {
+  // 1. Viewport-culled grass meadow base (keeps 72x46 map locked at 60 FPS!)
+  const startCol = Math.max(0, Math.floor(cameraX / T) - 1);
+  const endCol = Math.min(MAP_COLS - 1, Math.ceil((cameraX + width) / T) + 1);
+  const startRow = Math.max(0, Math.floor(cameraY / T) - 1);
+  const endRow = Math.min(MAP_ROWS - 1, Math.ceil((cameraY + height) / T) + 1);
+
+  for (let y = startRow; y <= endRow; y++) {
+    for (let x = startCol; x <= endCol; x++) {
       const checker = (x + y) % 2 === 0;
       ctx.fillStyle = checker ? theme.grassA : theme.grassB;
       ctx.fillRect(x * T, y * T, T, T);
@@ -100,22 +114,29 @@ export function renderGameWorld(ctx: CanvasRenderingContext2D, data: RenderConte
     }
   }
 
-  // 2. Dirt, Cobblestone & Plaza Paths
+  // 2. Dirt, Cobblestone & Grand Valley Roads
   drawPaths(ctx, T, theme);
 
-  // 3. Animated Creek & Bridge
+  // 3. Animated Creek, Two Bridges & Emerald Lake with Fishing Pier
   drawCreekAndBridge(ctx, T, timeSec, theme);
+  drawEmeraldLakeAndPier(ctx, T, timeSec, theme);
 
   // 4. Pasture Ground & Back Fence
   drawPasturePenGround(ctx, T);
 
-  // 5. Developed Farm Field + Automated Sprinklers
-  drawFarmField(ctx, state, T, timeSec, hoverTile);
+  // 5. Developed Farm Field + Automated Sprinklers (or Visiting Real Player's Live Farm!)
+  drawFarmField(ctx, state, T, timeSec, hoverTile, visitingFarm);
+
+  // 5.5. Physical Walkable Neighbor Farm Estates across the Valley
+  drawWorldEstates(ctx, state, T, timeSec);
 
   // 6. Decorative Flowers
   for (const fl of FLOWERS) {
     const fx = fl.x * T;
     const fy = fl.y * T;
+    if (fx < cameraX - 40 || fx > cameraX + width + 40 || fy < cameraY - 40 || fy > cameraY + height + 40) {
+      continue;
+    }
     const sway = Math.sin(timeSec * 2.2 + fl.x * 3) * 1.5;
     ctx.fillStyle = '#3f8a38';
     ctx.fillRect(fx - 1, fy, 2, 6);
@@ -131,7 +152,14 @@ export function renderGameWorld(ctx: CanvasRenderingContext2D, data: RenderConte
 
   // 7. Static Buildings & Developed Structures
   drawArtisanWindmill(ctx, T, timeSec);
-  drawFarmhouse(ctx, T, timeSec, state.timeOfDay, state.houseLevel);
+  drawFarmhouse(
+    ctx,
+    T,
+    timeSec,
+    state.timeOfDay,
+    visitingFarm ? visitingFarm.snapshot.houseLevel : state.houseLevel,
+    visitingFarm ? visitingFarm.ownerName : null
+  );
   drawShippingBin(ctx, T);
   drawWaterWell(ctx, T, timeSec);
   drawRedBarn(ctx, T);
@@ -194,11 +222,11 @@ export function renderGameWorld(ctx: CanvasRenderingContext2D, data: RenderConte
   // 9. Pasture Front Fence
   drawPastureFrontFence(ctx, T);
 
-  // 10. Ambient Butterflies on Sunny Days
+  // 10. Ambient Butterflies across the Valley on Sunny Days
   if (butterfliesEnabled && state.weather === 'sunny' && state.timeOfDay < 0.78) {
-    for (let i = 0; i < 6; i++) {
-      const bx = (4 + i * 5.8 + Math.sin(timeSec * 0.9 + i * 2) * 1.4) * T;
-      const by = (5 + (i % 3) * 5 + Math.cos(timeSec * 1.3 + i) * 1.1) * T;
+    for (let i = 0; i < 12; i++) {
+      const bx = (4 + i * 5.6 + Math.sin(timeSec * 0.9 + i * 2) * 1.6) * T;
+      const by = (5 + (i % 5) * 8 + Math.cos(timeSec * 1.3 + i) * 1.4) * T;
       const flap = Math.abs(Math.sin(timeSec * 14 + i)) * 4 + 1.5;
       ctx.fillStyle = i % 2 === 0 ? '#fde047' : '#f472b6';
       ctx.beginPath();
@@ -283,8 +311,67 @@ export function renderGameWorld(ctx: CanvasRenderingContext2D, data: RenderConte
 
   ctx.restore();
 
-  // 15. Screen-Space Atmosphere
+  // 15. Screen-Space Off-Screen Real Player Compass Pointers
+  drawOffscreenPlayerIndicators(ctx, state, remoteFarmers, cameraX, cameraY, width, height, T);
+
+  // 16. Screen-Space Atmosphere
   drawAtmosphere(ctx, state, width, height, timeSec);
+}
+
+function drawOffscreenPlayerIndicators(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  remoteFarmers: RemoteFarmer[],
+  cameraX: number,
+  cameraY: number,
+  width: number,
+  height: number,
+  T: number
+) {
+  const realPeers = remoteFarmers.filter((rf) => rf.isRealPlayer);
+  if (realPeers.length === 0) return;
+
+  const padX = 76;
+  const padTop = 76;
+  const padBottom = 112;
+
+  for (const rf of realPeers) {
+    const sx = rf.x * T - cameraX;
+    const sy = rf.y * T - cameraY;
+    if (sx >= 24 && sx <= width - 24 && sy >= 48 && sy <= height - 72) continue;
+
+    const cx = width / 2;
+    const cy = height / 2;
+    const angle = Math.atan2(sy - cy, sx - cx);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const maxW = Math.max(40, width / 2 - padX);
+    const maxH = Math.max(40, (height - padTop - padBottom) / 2);
+    const scale = Math.min(
+      Math.abs(cos) > 0.001 ? maxW / Math.abs(cos) : 9999,
+      Math.abs(sin) > 0.001 ? maxH / Math.abs(sin) : 9999
+    );
+    const ix = cx + cos * scale;
+    const iy = Math.max(padTop, Math.min(height - padBottom, cy + sin * scale));
+    const dist = Math.round(Math.hypot(rf.x - state.player.x, rf.y - state.player.y));
+    const label = `★ ${rf.name} · ${dist}m`;
+
+    ctx.save();
+    ctx.font = '800 11px Nunito, sans-serif';
+    const tw = ctx.measureText(label).width + 24;
+    drawRoundedRect(ctx, ix - tw / 2, iy - 13, tw, 26, 13);
+    ctx.fillStyle = 'rgba(79, 70, 229, 0.92)';
+    ctx.fill();
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, ix, iy);
+    ctx.restore();
+  }
 }
 
 function drawPaths(ctx: CanvasRenderingContext2D, T: number, theme: ThemePalette) {
@@ -292,41 +379,66 @@ function drawPaths(ctx: CanvasRenderingContext2D, T: number, theme: ThemePalette
   // Homestead main lane
   drawRoundedRect(ctx, 2.0 * T, 4.1 * T, 13.8 * T, 1.5 * T, 16);
   ctx.fill();
-  // Connector down to bridge
-  drawRoundedRect(ctx, 14.0 * T, 4.3 * T, 1.8 * T, 5.8 * T, 14);
+  // Connector down to North Bridge & further South to Amine's Oasis
+  drawRoundedRect(ctx, 13.6 * T, 4.3 * T, 1.8 * T, 25.4 * T, 14);
   ctx.fill();
   // Lane to pasture
   drawRoundedRect(ctx, 5.8 * T, 12.1 * T, 1.6 * T, 2.7 * T, 12);
   ctx.fill();
+  // Southwest Oasis road (connects South trail to Amine's Farm & South Bridge)
+  drawRoundedRect(ctx, 4.2 * T, 28.1 * T, 14.8 * T, 1.8 * T, 12);
+  ctx.fill();
 
   // Village cobblestone plaza
   ctx.fillStyle = theme.plazaColor;
-  drawRoundedRect(ctx, 17.5 * T, 6.4 * T, 10.6 * T, 8.6 * T, 26);
+  drawRoundedRect(ctx, 17.5 * T, 6.4 * T, 11.4 * T, 8.6 * T, 26);
   ctx.fill();
 
-  // Bridge approach
+  // North Bridge approach
   ctx.fillStyle = theme.pathColor;
   drawRoundedRect(ctx, 14.3 * T, 8.3 * T, 4.2 * T, 1.9 * T, 10);
   ctx.fill();
 
-  // Connector to East Multiplayer Farmers' Plaza
-  ctx.fillStyle = theme.plazaColor;
-  drawRoundedRect(ctx, 26.5 * T, 8.5 * T, 4.0 * T, 2.2 * T, 12);
+  // Village South Scenic Trail down to Emerald Lake & Fishing Pier
+  drawRoundedRect(ctx, 28.0 * T, 14.2 * T, 2.0 * T, 6.9 * T, 12);
   ctx.fill();
 
-  // Grand Multiplayer Plaza floor
+  // South Lakefront Boulevard (South Bridge -> Yasmine's Orchard -> Leo's Golden Estate)
+  drawRoundedRect(ctx, 17.2 * T, 28.3 * T, 41.5 * T, 1.8 * T, 12);
+  ctx.fill();
+  // Spur down into Yasmine's Star Orchard
+  drawRoundedRect(ctx, 25.0 * T, 29.4 * T, 1.8 * T, 5.6 * T, 10);
+  ctx.fill();
+
+  // Connector to Grand East Multiplayer Farmers' Plaza
   ctx.fillStyle = theme.plazaColor;
-  drawRoundedRect(ctx, 29.3 * T, 6.8 * T, 6.4 * T, 8.6 * T, 28);
+  drawRoundedRect(ctx, 27.6 * T, 8.4 * T, 4.4 * T, 2.4 * T, 12);
+  ctx.fill();
+
+  // Grand Multiplayer Plaza floor (expanded!)
+  ctx.fillStyle = theme.plazaColor;
+  drawRoundedRect(ctx, 31.2 * T, 6.2 * T, 14.6 * T, 9.8 * T, 30);
   ctx.fill();
   ctx.strokeStyle = '#b4a382';
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  // Cobblestone details
+  // Northeast Road from Plaza -> Claire's Lavender Meadow
+  ctx.fillStyle = theme.pathColor;
+  drawRoundedRect(ctx, 45.2 * T, 7.0 * T, 15.0 * T, 1.8 * T, 12);
+  ctx.fill();
+
+  // Eastern Scenic Avenue from Plaza South -> Leo's Golden Valley Estate
+  drawRoundedRect(ctx, 41.0 * T, 15.6 * T, 2.0 * T, 14.2 * T, 12);
+  ctx.fill();
+  drawRoundedRect(ctx, 41.4 * T, 28.2 * T, 16.5 * T, 1.8 * T, 12);
+  ctx.fill();
+
+  // Cobblestone details inside Village & Grand Plaza
   ctx.fillStyle = 'rgba(0,0,0,0.08)';
-  for (let y = 7; y <= 14; y++) {
-    for (let x = 18; x <= 35; x++) {
-      if ((x * 13 + y * 7) % 4 === 0 && (x < 27 || x > 29)) {
+  for (let y = 7; y <= 15; y++) {
+    for (let x = 18; x <= 44; x++) {
+      if ((x * 13 + y * 7) % 4 === 0 && (x < 28 || x > 31)) {
         drawRoundedRect(ctx, x * T + 8, y * T + 10, 14, 10, 4);
         ctx.fill();
       }
@@ -346,31 +458,232 @@ function drawCreekAndBridge(ctx: CanvasRenderingContext2D, T: number, timeSec: n
   ctx.fillRect(cx + 12, 0, cw - 24, MAP_ROWS * T);
 
   ctx.fillStyle = 'rgba(224, 242, 254, 0.65)';
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 48; i++) {
     const ry = (i * 54 + timeSec * 28) % (MAP_ROWS * T);
     const rx = cx + 10 + ((i * 29) % Math.max(12, cw - 30));
     ctx.fillRect(rx, ry, 14, 3);
   }
 
-  const by = BRIDGE_Y_MIN * T;
-  const bh = (BRIDGE_Y_MAX - BRIDGE_Y_MIN) * T;
-  const bx = cx - 10;
-  const bw = cw + 20;
+  // Draw Both Wooden Bridges (North Bridge & South Bridge)
+  const bridges = [
+    { minY: BRIDGE_Y_MIN, maxY: BRIDGE_Y_MAX },
+    { minY: SOUTH_BRIDGE_Y_MIN, maxY: SOUTH_BRIDGE_Y_MAX },
+  ];
+
+  for (const br of bridges) {
+    const by = br.minY * T;
+    const bh = (br.maxY - br.minY) * T;
+    const bx = cx - 10;
+    const bw = cw + 20;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.25)';
+    ctx.fillRect(bx + 4, by + 6, bw, bh);
+    ctx.fillStyle = '#a16207';
+    ctx.fillRect(bx, by, bw, bh);
+    for (let px = bx + 4; px < bx + bw - 4; px += 14) {
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(px, by + 4, 10, bh - 8);
+    }
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(bx - 2, by - 4, bw + 4, 8);
+    ctx.fillRect(bx - 2, by + bh - 4, bw + 4, 8);
+    ctx.fillStyle = '#d97706';
+    ctx.fillRect(bx, by - 2, bw, 4);
+    ctx.fillRect(bx, by + bh - 2, bw, 4);
+  }
+}
+
+function drawEmeraldLakeAndPier(
+  ctx: CanvasRenderingContext2D,
+  T: number,
+  timeSec: number,
+  theme: ThemePalette
+) {
+  const lx = LAKE_BOUNDS.minX * T;
+  const ly = LAKE_BOUNDS.minY * T;
+  const lw = (LAKE_BOUNDS.maxX - LAKE_BOUNDS.minX) * T;
+  const lh = (LAKE_BOUNDS.maxY - LAKE_BOUNDS.minY) * T;
+
+  // Sandy shore
+  ctx.fillStyle = '#d6c394';
+  drawRoundedRect(ctx, lx - 10, ly - 10, lw + 20, lh + 20, 44);
+  ctx.fill();
+
+  // Outer turquoise water
+  ctx.fillStyle = theme.waterLight;
+  drawRoundedRect(ctx, lx, ly, lw, lh, 38);
+  ctx.fill();
+
+  // Deep center
+  ctx.fillStyle = theme.waterDeep;
+  drawRoundedRect(ctx, lx + 20, ly + 20, lw - 40, lh - 40, 28);
+  ctx.fill();
+
+  // Water sparkles
+  ctx.fillStyle = 'rgba(224, 242, 254, 0.6)';
+  for (let i = 0; i < 14; i++) {
+    const sx = lx + 34 + ((i * 79 + Math.sin(timeSec * 1.4 + i) * 14) % (lw - 68));
+    const sy = ly + 30 + ((i * 47) % (lh - 60));
+    ctx.fillRect(sx, sy, 16, 3);
+  }
+
+  // Lily pads
+  const pads = [
+    { x: lx + 95, y: ly + 90 },
+    { x: lx + lw - 115, y: ly + lh - 70 },
+    { x: lx + lw - 90, y: ly + 85 },
+  ];
+  for (const p of pads) {
+    ctx.fillStyle = '#16a34a';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 12, 0.25, Math.PI * 1.9);
+    ctx.lineTo(p.x, p.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#f472b6';
+    ctx.beginPath();
+    ctx.arc(p.x - 2, p.y - 3, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Wooden Fishing Pier extending into the Lake
+  const px = PIER_BOUNDS.minX * T;
+  const py = PIER_BOUNDS.minY * T;
+  const pw = (PIER_BOUNDS.maxX - PIER_BOUNDS.minX) * T;
+  const ph = (PIER_BOUNDS.maxY - PIER_BOUNDS.minY) * T;
 
   ctx.fillStyle = 'rgba(15, 23, 42, 0.25)';
-  ctx.fillRect(bx + 4, by + 6, bw, bh);
-  ctx.fillStyle = '#a16207';
-  ctx.fillRect(bx, by, bw, bh);
-  for (let px = bx + 4; px < bx + bw - 4; px += 14) {
+  ctx.fillRect(px + 5, py + 8, pw, ph);
+  ctx.fillStyle = '#92400e';
+  drawRoundedRect(ctx, px, py, pw, ph, 6);
+  ctx.fill();
+  for (let row = py + 6; row < py + ph - 6; row += 14) {
     ctx.fillStyle = '#b45309';
-    ctx.fillRect(px, by + 4, 10, bh - 8);
+    ctx.fillRect(px + 4, row, pw - 8, 10);
   }
+  // Pier posts
   ctx.fillStyle = '#78350f';
-  ctx.fillRect(bx - 2, by - 4, bw + 4, 8);
-  ctx.fillRect(bx - 2, by + bh - 4, bw + 4, 8);
-  ctx.fillStyle = '#d97706';
-  ctx.fillRect(bx, by - 2, bw, 4);
-  ctx.fillRect(bx, by + bh - 2, bw, 4);
+  ctx.fillRect(px - 3, py + ph - 10, 10, 12);
+  ctx.fillRect(px + pw - 7, py + ph - 10, 10, 12);
+
+  // Lake Sign
+  ctx.fillStyle = '#0c4a6e';
+  drawRoundedRect(ctx, lx + lw / 2 - 58, ly + lh - 28, 116, 20, 8);
+  ctx.fill();
+  ctx.fillStyle = '#bae6fd';
+  ctx.font = '700 10.5px Fredoka, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🌊 EMERALD LAKE', lx + lw / 2, ly + lh - 14);
+}
+
+function drawWorldEstates(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  T: number,
+  timeSec: number
+) {
+  for (const est of WORLD_ESTATES) {
+    const nbr = state.neighbors.find((n) => n.id === est.neighborId);
+    const watered = nbr?.wateredToday ?? false;
+    const harvested = nbr?.harvestedToday ?? false;
+
+    // 1. Estate Crop Field
+    const fx = est.fieldRect.x * T;
+    const fy = est.fieldRect.y * T;
+    const fw = est.fieldRect.w * T;
+    const fh = est.fieldRect.h * T;
+
+    ctx.fillStyle = 'rgba(71, 118, 56, 0.35)';
+    drawRoundedRect(ctx, fx - 8, fy - 8, fw + 16, fh + 16, 12);
+    ctx.fill();
+    ctx.strokeStyle = est.accentColor;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    for (let y = est.fieldRect.y; y < est.fieldRect.y + est.fieldRect.h; y++) {
+      for (let x = est.fieldRect.x; x < est.fieldRect.x + est.fieldRect.w; x++) {
+        const px = x * T;
+        const py = y * T;
+        ctx.fillStyle = watered ? '#5c3a21' : '#9c6b3b';
+        drawRoundedRect(ctx, px + 3, py + 3, T - 6, T - 6, 7);
+        ctx.fill();
+        ctx.fillStyle = watered ? '#462b17' : '#85572c';
+        for (let r = 0; r < 3; r++) {
+          ctx.fillRect(px + 8, py + 11 + r * 11, T - 16, 4);
+        }
+        const progress = harvested ? 0.55 : ((x + y) % 3 === 0 ? 0.72 : 1.0);
+        drawCropSprite(ctx, est.specialtyCrop, progress, px, py, T, timeSec, x * 3 + y);
+      }
+    }
+
+    // 2. Neighbor Estate Farmhouse Cottage
+    const hx = est.houseRect.x * T;
+    const hy = est.houseRect.y * T;
+    const hw = est.houseRect.w * T;
+    const hh = est.houseRect.h * T;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.22)';
+    drawRoundedRect(ctx, hx + 6, hy + 10, hw, hh, 10);
+    ctx.fill();
+
+    ctx.fillStyle = est.wallColor;
+    drawRoundedRect(ctx, hx + 8, hy + hh * 0.42, hw - 16, hh * 0.58, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Door & windows
+    ctx.fillStyle = '#92400e';
+    drawRoundedRect(ctx, hx + hw / 2 - 14, hy + hh - 38, 28, 38, 5);
+    ctx.fill();
+    ctx.fillStyle = state.timeOfDay > 0.62 ? '#fde047' : '#bae6fd';
+    drawRoundedRect(ctx, hx + 22, hy + hh - 34, 24, 20, 4);
+    ctx.fill();
+    drawRoundedRect(ctx, hx + hw - 46, hy + hh - 34, 24, 20, 4);
+    ctx.fill();
+
+    // Roof
+    ctx.fillStyle = est.roofColor;
+    ctx.beginPath();
+    ctx.moveTo(hx - 6, hy + hh * 0.48);
+    ctx.lineTo(hx + hw / 2, hy - 12);
+    ctx.lineTo(hx + hw + 6, hy + hh * 0.48);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#451a03';
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+
+    // Nameplate banner
+    const signText = `${est.ownerName.toUpperCase()}'S FARM`;
+    ctx.fillStyle = '#1e1b4b';
+    drawRoundedRect(ctx, hx + hw / 2 - 58, hy + hh * 0.2, 116, 20, 7);
+    ctx.fill();
+    ctx.strokeStyle = est.accentColor;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.fillStyle = '#fef08a';
+    ctx.font = '700 10.5px Fredoka, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(signText, hx + hw / 2, hy + hh * 0.2 + 14);
+
+    // Interactive Helper Signpost beside cottage
+    const sx = est.signX * T;
+    const sy = est.signY * T;
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(sx - 3, sy - 6, 6, 22);
+    ctx.fillStyle = '#fef3c7';
+    drawRoundedRect(ctx, sx - 24, sy - 22, 48, 20, 6);
+    ctx.fill();
+    ctx.strokeStyle = est.accentColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#451a03';
+    ctx.font = '800 11px Nunito, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(watered && harvested ? '✓ DONE' : !watered ? '💧 HELP' : '🌾 PICK', sx, sy - 8);
+  }
 }
 
 function drawPasturePenGround(ctx: CanvasRenderingContext2D, T: number) {
@@ -427,19 +740,65 @@ function drawFarmField(
   state: GameState,
   T: number,
   timeSec: number,
-  hoverTile: { x: number; y: number } | null
+  hoverTile: { x: number; y: number } | null,
+  visitingFarm: VisitingFarmState | null = null
 ) {
   const fx = FIELD_ORIGIN_X * T;
   const fy = FIELD_ORIGIN_Y * T;
   const fw = FIELD_MAX_W * T;
   const fh = FIELD_MAX_H * T;
 
-  ctx.fillStyle = 'rgba(71, 118, 56, 0.36)';
+  ctx.fillStyle = visitingFarm ? 'rgba(79, 70, 229, 0.16)' : 'rgba(71, 118, 56, 0.36)';
   drawRoundedRect(ctx, fx - 8, fy - 8, fw + 16, fh + 16, 12);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(120, 53, 15, 0.35)';
+  ctx.strokeStyle = visitingFarm ? '#818cf8' : 'rgba(120, 53, 15, 0.35)';
   ctx.lineWidth = 3;
   ctx.stroke();
+
+  if (visitingFarm) {
+    const snap = visitingFarm.snapshot;
+    const snapMap = new Map(snap.tiles.map((t) => [tileKey(t.x, t.y), t]));
+    for (let y = FIELD_ORIGIN_Y; y < FIELD_ORIGIN_Y + FIELD_MAX_H; y++) {
+      for (let x = FIELD_ORIGIN_X; x < FIELD_ORIGIN_X + FIELD_MAX_W; x++) {
+        const px = x * T;
+        const py = y * T;
+        const unlocked = isTileInExpansion(x, y, snap.farmExpansionLevel);
+        if (!unlocked) {
+          ctx.fillStyle = 'rgba(54, 83, 20, 0.22)';
+          ctx.fillRect(px + 2, py + 2, T - 4, T - 4);
+          continue;
+        }
+        const stTile = snapMap.get(tileKey(x, y));
+        if (stTile && stTile.tilled) {
+          const isWatered = stTile.watered || visitingFarm.helpedToday;
+          ctx.fillStyle = isWatered ? '#5c3a21' : '#9c6b3b';
+          drawRoundedRect(ctx, px + 3, py + 3, T - 6, T - 6, 7);
+          ctx.fill();
+          ctx.fillStyle = isWatered ? '#462b17' : '#85572c';
+          for (let r = 0; r < 3; r++) {
+            ctx.fillRect(px + 8, py + 11 + r * 11, T - 16, 4);
+          }
+          if (stTile.cropId) {
+            drawCropSprite(
+              ctx,
+              stTile.cropId,
+              stTile.progress ?? 0.5,
+              px,
+              py,
+              T,
+              timeSec,
+              x + y
+            );
+          }
+        } else {
+          ctx.fillStyle = 'rgba(134, 197, 94, 0.65)';
+          drawRoundedRect(ctx, px + 3, py + 3, T - 6, T - 6, 7);
+          ctx.fill();
+        }
+      }
+    }
+    return;
+  }
 
   for (let y = FIELD_ORIGIN_Y; y < FIELD_ORIGIN_Y + FIELD_MAX_H; y++) {
     for (let x = FIELD_ORIGIN_X; x < FIELD_ORIGIN_X + FIELD_MAX_W; x++) {
@@ -909,7 +1268,8 @@ function drawFarmhouse(
   T: number,
   timeSec: number,
   timeOfDay: number,
-  houseLevel: number
+  houseLevel: number,
+  ownerLabel: string | null = null
 ) {
   const x = 4.5 * T;
   const y = 1.5 * T;
@@ -972,9 +1332,15 @@ function drawFarmhouse(
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  const label = houseLevel === 3 ? 'GREENSAGA VILLA ★' : houseLevel === 2 ? 'GREENSAGA MANOR' : 'GREENSAGA HOME';
-  ctx.fillStyle = '#78350f';
-  drawRoundedRect(ctx, x + w / 2 - 46, y + h * 0.24, 92, 20, 6);
+  const label = ownerLabel
+    ? `${ownerLabel.toUpperCase().slice(0, 12)}'S FARM ★`
+    : houseLevel === 3
+    ? 'GREENSAGA VILLA ★'
+    : houseLevel === 2
+    ? 'GREENSAGA MANOR'
+    : 'GREENSAGA HOME';
+  ctx.fillStyle = ownerLabel ? '#312e81' : '#78350f';
+  drawRoundedRect(ctx, x + w / 2 - 58, y + h * 0.24, 116, 20, 6);
   ctx.fill();
   ctx.fillStyle = '#fef08a';
   ctx.font = '700 10.5px Fredoka, sans-serif';
@@ -1216,19 +1582,19 @@ function drawLinaBakery(ctx: CanvasRenderingContext2D, T: number, timeOfDay: num
 }
 
 function drawMultiplayerPlaza(ctx: CanvasRenderingContext2D, T: number, timeSec: number, roomCode: string) {
-  // Grand Fountain at 32.5, 11.1
-  const fx = 32.5 * T;
-  const fy = 11.1 * T;
+  // Grand Fountain at 37.5, 11.0
+  const fx = 37.5 * T;
+  const fy = 11.0 * T;
 
   ctx.fillStyle = 'rgba(0,0,0,0.18)';
   ctx.beginPath();
-  ctx.ellipse(fx, fy + 16, 46, 26, 0, 0, Math.PI * 2);
+  ctx.ellipse(fx, fy + 16, 48, 28, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Outer stone basin
   ctx.fillStyle = '#cbd5e1';
   ctx.beginPath();
-  ctx.arc(fx, fy, 42, 0, Math.PI * 2);
+  ctx.arc(fx, fy, 44, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#64748b';
   ctx.lineWidth = 3;
@@ -1237,7 +1603,7 @@ function drawMultiplayerPlaza(ctx: CanvasRenderingContext2D, T: number, timeSec:
   // Animated turquoise water
   ctx.fillStyle = '#38bdf8';
   ctx.beginPath();
-  ctx.arc(fx, fy, 34, 0, Math.PI * 2);
+  ctx.arc(fx, fy, 36, 0, Math.PI * 2);
   ctx.fill();
   const r = 14 + Math.sin(timeSec * 3.5) * 6;
   ctx.strokeStyle = 'rgba(224, 242, 254, 0.75)';
@@ -1256,19 +1622,19 @@ function drawMultiplayerPlaza(ctx: CanvasRenderingContext2D, T: number, timeSec:
   ctx.arc(fx, fy - 4 - Math.abs(Math.sin(timeSec * 6)) * 5, 5, 0, Math.PI * 2);
   ctx.fill();
 
-  // Multiplayer Plaza Banner Arch at top of plaza
-  const ax = 32.5 * T;
-  const ay = 7.4 * T;
+  // Multiplayer Plaza Banner Arch at top of Grand Plaza
+  const ax = 37.5 * T;
+  const ay = 6.9 * T;
   ctx.fillStyle = '#312e81';
-  drawRoundedRect(ctx, ax - 84, ay - 22, 168, 28, 10);
+  drawRoundedRect(ctx, ax - 104, ay - 22, 208, 28, 10);
   ctx.fill();
   ctx.strokeStyle = '#818cf8';
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.fillStyle = '#e0e7ff';
-  ctx.font = '700 11px Fredoka, sans-serif';
+  ctx.font = '700 11.5px Fredoka, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(`🌐 MULTIPLAYER PLAZA · ${roomCode}`, ax, ay - 4);
+  ctx.fillText(`🌐 GRAND MP PLAZA · ${roomCode}`, ax, ay - 4);
 }
 
 function drawTree(
@@ -1721,10 +2087,24 @@ function drawAtmosphere(
 }
 
 export function getNearestLandmarkPrompt(
-  state: GameState
+  state: GameState,
+  remoteFarmers: RemoteFarmer[] = [],
+  visitingFarm: VisitingFarmState | null = null
 ): { id: string; x: number; y: number; label: string } | null {
   const px = state.player.x;
   const py = state.player.y;
+
+  // Nearby online or AI players to meet / wave / gift / visit farm!
+  for (const rf of remoteFarmers) {
+    if (Math.hypot(px - rf.x, py - rf.y) < 1.85) {
+      return {
+        id: `farmer:${rf.id}`,
+        x: rf.x,
+        y: rf.y,
+        label: `Meet ${rf.name} (Wave / Trade / Farm)`,
+      };
+    }
+  }
 
   for (const npc of NPC_LIST) {
     if (Math.hypot(px - npc.x, py - npc.y) < 1.9) {
@@ -1732,30 +2112,54 @@ export function getNearestLandmarkPrompt(
     }
   }
 
-  for (const tree of state.orchardTrees) {
-    if (tree.fruitsReady > 0 && Math.hypot(px - tree.x, py - tree.y) < 1.75) {
-      return {
-        id: `orchard:${tree.id}`,
-        x: tree.x,
-        y: tree.y,
-        label: `Pick ${tree.fruitsReady} ${tree.fruit === 'apple' ? 'Apples' : 'Peaches'}`,
-      };
+  // Physical walkable Neighbor Farm Estates
+  for (const est of WORLD_ESTATES) {
+    const nearSign = Math.hypot(px - est.signX, py - est.signY) < 2.2;
+    const inField =
+      px >= est.fieldRect.x - 0.6 &&
+      px <= est.fieldRect.x + est.fieldRect.w + 0.6 &&
+      py >= est.fieldRect.y - 0.6 &&
+      py <= est.fieldRect.y + est.fieldRect.h + 0.6;
+    if (nearSign || inField) {
+      const nbr = state.neighbors.find((n) => n.id === est.neighborId);
+      const actionLabel = !nbr?.wateredToday
+        ? `Water ${est.ownerName}'s Farm (+25g)`
+        : !nbr?.harvestedToday
+        ? `Pick Crop at ${est.ownerName}'s Farm`
+        : `${est.farmName} (Helped Today ✓)`;
+      return { id: `estate:${est.neighborId}`, x: est.signX, y: est.signY, label: actionLabel };
     }
   }
 
-  for (const animal of state.livestock) {
-    if (Math.hypot(px - animal.x, py - animal.y) < 1.65) {
-      const prod = animal.species === 'chicken' ? 'Egg' : animal.species === 'cow' ? 'Milk' : 'Wool';
-      const verb = animal.productReady
-        ? `Collect ${prod}`
-        : !animal.fedToday
-        ? `Feed ${animal.name}`
-        : `Pet ${animal.name}`;
-      return { id: `animal:${animal.id}`, x: animal.x, y: animal.y, label: verb };
+  if (!visitingFarm) {
+    for (const tree of state.orchardTrees) {
+      if (tree.fruitsReady > 0 && Math.hypot(px - tree.x, py - tree.y) < 1.75) {
+        return {
+          id: `orchard:${tree.id}`,
+          x: tree.x,
+          y: tree.y,
+          label: `Pick ${tree.fruitsReady} ${tree.fruit === 'apple' ? 'Apples' : 'Peaches'}`,
+        };
+      }
+    }
+
+    for (const animal of state.livestock) {
+      if (Math.hypot(px - animal.x, py - animal.y) < 1.65) {
+        const prod = animal.species === 'chicken' ? 'Egg' : animal.species === 'cow' ? 'Milk' : 'Wool';
+        const verb = animal.productReady
+          ? `Collect ${prod}`
+          : !animal.fedToday
+          ? `Feed ${animal.name}`
+          : `Pet ${animal.name}`;
+        return { id: `animal:${animal.id}`, x: animal.x, y: animal.y, label: verb };
+      }
     }
   }
 
   for (const [key, lm] of Object.entries(LANDMARKS)) {
+    if (visitingFarm && (key === 'farmhouseDoor' || key === 'artisanMill' || key === 'shippingBin')) {
+      continue;
+    }
     if (Math.hypot(px - lm.x, py - lm.y) < lm.radius) {
       return { id: `landmark:${key}`, x: lm.x, y: lm.y, label: lm.label };
     }

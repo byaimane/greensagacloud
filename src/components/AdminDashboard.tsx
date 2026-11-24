@@ -35,7 +35,10 @@ import {
 import {
   ANDROID_APP_ID,
   buildPushBundle,
+  fetchLatestAppPush,
   pushUpdateToAndroidApp,
+  setLastAppliedPushAt,
+  setLastAppliedRevision,
 } from '../engine/appSyncClient';
 import {
   checkSupabaseConnection,
@@ -215,7 +218,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handlePushToAndroidApp = async () => {
     setPushing(true);
-    const bundle = buildPushBundle(config, pushTitle, pushBody);
+    const existingRemote = await fetchLatestAppPush(config.pushServerUrl);
+    const bundle = buildPushBundle(config, pushTitle, pushBody, existingRemote?.revision ?? 0);
+    // Mark as applied locally so Admin's own tab doesn't double-toast itself
+    setLastAppliedRevision(bundle.revision);
+    if (bundle.pushedAt) setLastAppliedPushAt(bundle.pushedAt);
     const res = await pushUpdateToAndroidApp(config.pushServerUrl, bundle, config);
     const entry: PushHistoryEntry = {
       revision: bundle.revision,
@@ -235,8 +242,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
     setPushing(false);
     flash(
-      res.supabaseSaved
-        ? `☁️ Pushed Rev #${bundle.revision} to Supabase Cloud & ${ANDROID_APP_ID}!`
+      res.realtimeSent && res.supabaseSaved
+        ? `☁️ Pushed Rev #${bundle.revision} LIVE to Android (${ANDROID_APP_ID}) via Realtime + Cloud DB!`
+        : res.realtimeSent
+        ? `⚡ Pushed Rev #${bundle.revision} LIVE to Android (${ANDROID_APP_ID}) via Supabase Realtime Cloud!`
         : res.remoteSaved
         ? `📲 Pushed Rev #${bundle.revision} live to ${ANDROID_APP_ID}!`
         : `📲 Pushed Rev #${bundle.revision} (Local sync broadcast)!`

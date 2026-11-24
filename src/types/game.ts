@@ -163,6 +163,38 @@ export interface NeighborFarm {
   online: boolean;
 }
 
+export interface FarmTileSnapshot {
+  x: number;
+  y: number;
+  tilled: boolean;
+  watered: boolean;
+  fertilized: boolean;
+  cropId?: CropId;
+  progress?: number;
+}
+
+export interface FarmSnapshot {
+  ownerId: string;
+  ownerName: string;
+  level: number;
+  houseLevel: number;
+  farmExpansionLevel: number;
+  sprinklerLevel: number;
+  shirtColor: string;
+  hatColor: string;
+  tiles: FarmTileSnapshot[];
+  animalCount: number;
+}
+
+export interface VisitingFarmState {
+  ownerId: string;
+  ownerName: string;
+  level: number;
+  isRealPlayer: boolean;
+  snapshot: FarmSnapshot;
+  helpedToday: boolean;
+}
+
 export interface RemoteFarmer {
   id: string;
   name: string;
@@ -184,6 +216,8 @@ export interface RemoteFarmer {
   emoteTimer?: number;
   chatBubble?: string;
   chatBubbleTimer?: number;
+  visitingFarmOwnerId?: string | null;
+  farmSnapshot?: FarmSnapshot;
   lastSeen: number;
 }
 

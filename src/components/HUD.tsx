@@ -8,6 +8,7 @@ import {
   HelpCircle,
   Home,
   Map,
+  MapPin,
   Maximize2,
   Megaphone,
   Menu,
@@ -36,12 +37,13 @@ import {
   TOOL_NAMES,
 } from '../i18n/translations';
 import { AdminConfig } from '../types/admin';
-import { FarmTile, GameState, Language, RemoteFarmer } from '../types/game';
+import { FarmTile, GameState, Language, RemoteFarmer, VisitingFarmState } from '../types/game';
 
 interface HUDProps {
   state: GameState;
   adminConfig: AdminConfig;
   remoteFarmers: RemoteFarmer[];
+  visitingFarm: VisitingFarmState | null;
   fps: number;
   onlineCount: number;
   hoverInfo: { tile: FarmTile; screenX: number; screenY: number } | null;
@@ -51,6 +53,9 @@ interface HUDProps {
   onOpenShop: () => void;
   onOpenMap: () => void;
   onOpenLevels: () => void;
+  onReturnHomeFromVisit: () => void;
+  onMeetPlayer: (farmer: RemoteFarmer) => void;
+  onVisitPlayerFarm: (farmer: RemoteFarmer) => void;
   chatOpen: boolean;
   unreadChat: number;
   onToggleChat: () => void;
@@ -80,6 +85,7 @@ export const HUD: React.FC<HUDProps> = ({
   state,
   adminConfig,
   remoteFarmers,
+  visitingFarm,
   fps,
   onlineCount,
   hoverInfo,
@@ -89,6 +95,9 @@ export const HUD: React.FC<HUDProps> = ({
   onOpenShop,
   onOpenMap,
   onOpenLevels,
+  onReturnHomeFromVisit,
+  onMeetPlayer,
+  onVisitPlayerFarm,
   chatOpen,
   unreadChat,
   onToggleChat,
@@ -389,6 +398,119 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         </div>
 
+        {/* VISITING FARM BANNER OR REAL ONLINE PLAYER QUICK-MEET BAR */}
+        {visitingFarm ? (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+            <div
+              className="hud-interactive"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                background: 'rgba(49, 46, 129, 0.94)',
+                border: '2px solid #fde047',
+                borderRadius: 999,
+                padding: '5px 12px',
+                color: '#fff',
+                fontSize: 12,
+                fontWeight: 800,
+                boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+              }}
+            >
+              <span>
+                🏡 Visiting <span style={{ color: '#fde047' }}>{visitingFarm.ownerName}'s Farm</span> (Lv.{visitingFarm.level})
+                {visitingFarm.helpedToday ? ' · Watered ✓' : ' · Click crops to water (+30g)!'}
+              </span>
+              <button
+                onClick={onReturnHomeFromVisit}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: '#16a34a',
+                  color: '#fff',
+                  border: '1px solid #86efac',
+                  borderRadius: 999,
+                  padding: '3px 10px',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                <Home size={12} /> Return to My Farm
+              </button>
+            </div>
+          </div>
+        ) : (() => {
+          const realPeers = remoteFarmers.filter((f) => f.isRealPlayer);
+          if (realPeers.length === 0) return null;
+          const first = realPeers[0];
+          return (
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+              <div
+                className="hud-interactive"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'rgba(15, 23, 42, 0.86)',
+                  border: '1.5px solid #4ade80',
+                  borderRadius: 999,
+                  padding: '3px 10px',
+                  color: '#f8fafc',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.28)',
+                }}
+              >
+                <span style={{ color: '#4ade80' }}>●</span>
+                <span>
+                  {realPeers.length === 1
+                    ? `${first.name} is online!`
+                    : `${realPeers.length} real players online!`}
+                </span>
+                <button
+                  onClick={() => onMeetPlayer(first)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    background: '#4f46e5',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 999,
+                    padding: '2px 8px',
+                    fontSize: 10.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <MapPin size={10} /> Meet
+                </button>
+                <button
+                  onClick={() => onVisitPlayerFarm(first)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    background: '#16a34a',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 999,
+                    padding: '2px 8px',
+                    fontSize: 10.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Home size={10} /> Visit Farm
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* BOTTOM HOTBAR + ADMIN AD PILL + PLUGIN OVERLAYS */}
         <div className="hotbar-wrap">
           {adminConfig.announcement.trim() && (
@@ -540,7 +662,7 @@ export const HUD: React.FC<HUDProps> = ({
           onClick={onOpenMap}
           title="Live Valley Mini-Map Radar (Click to open World Map)"
         >
-          <div className="minimap-river" />
+          <div className="minimap-river" style={{ left: '23%' }} />
           <div
             className="minimap-dot"
             style={{
@@ -549,6 +671,7 @@ export const HUD: React.FC<HUDProps> = ({
               background: '#ef4444',
               width: 8,
               height: 8,
+              zIndex: 4,
             }}
           />
           {remoteFarmers.map((rf) => (
@@ -558,9 +681,11 @@ export const HUD: React.FC<HUDProps> = ({
               style={{
                 left: `${(rf.x / MAP_COLS) * 100}%`,
                 top: `${(rf.y / MAP_ROWS) * 100}%`,
-                background: '#38bdf8',
-                width: 6,
-                height: 6,
+                background: rf.isRealPlayer ? '#fde047' : '#38bdf8',
+                border: rf.isRealPlayer ? '1.5px solid #4f46e5' : undefined,
+                width: rf.isRealPlayer ? 8 : 5,
+                height: rf.isRealPlayer ? 8 : 5,
+                zIndex: rf.isRealPlayer ? 3 : 2,
               }}
             />
           ))}

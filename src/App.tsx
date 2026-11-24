@@ -25,11 +25,17 @@ import {
   signOutPlayerAccount,
 } from './engine/accountStore';
 import {
+  FastTravelRegion,
+  FIELD_MAX_H,
+  FIELD_MAX_W,
+  FIELD_ORIGIN_X,
+  FIELD_ORIGIN_Y,
   isPositionBlocked,
   LANDMARKS,
   MAP_COLS,
   MAP_ROWS,
   TILE_SIZE,
+  WORLD_ESTATES,
   WORLD_REGIONS,
 } from './data/worldMap';
 import {
@@ -40,22 +46,27 @@ import {
 } from './engine/adminStore';
 import {
   fetchLatestAppPush,
-  getLastAppliedRevision,
   isAdminAuthenticated,
   isAdminRoute,
   logoutAdmin,
+  setLastAppliedPushAt,
   setLastAppliedRevision,
+  shouldApplyPushBundle,
+  startOtaRealtimeSync,
 } from './engine/appSyncClient';
 import {
   addItem,
   adoptLivestock,
   advanceRealTimeSimulation,
+  buildFallbackFarmSnapshot,
+  buildFarmSnapshot,
   buyItem,
   completeQuest,
   craftArtisanRecipe,
   createInitialState,
   expandFarm,
   giftNpc,
+  grantCoopHelpReward,
   harvestOrchardTree,
   helpNeighborWater,
   HOTBAR_SLOTS,
@@ -97,6 +108,7 @@ import {
   Particle,
   RemoteFarmer,
   ToolId,
+  VisitingFarmState,
 } from './types/game';
 
 type ActiveModal =
@@ -113,13 +125,23 @@ type ActiveModal =
   | { type: 'day_summary'; summary: DaySummary };
 
 interface PendingClickAction {
-  kind: 'tile' | 'npc' | 'animal' | 'landmark' | 'orchard';
+  kind: 'tile' | 'npc' | 'animal' | 'landmark' | 'orchard' | 'estate';
   x: number;
   y: number;
   id?: string;
 }
 
-const SESSION_PEER_ID = `peer_${Math.random().toString(36).slice(2, 9)}`;
+const SESSION_PEER_ID = (() => {
+  try {
+    const existing = sessionStorage.getItem('greensaga_tab_peer_id');
+    if (existing) return existing;
+    const fresh = `peer_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-3)}`;
+    sessionStorage.setItem('greensaga_tab_peer_id', fresh);
+    return fresh;
+  } catch {
+    return `peer_${Math.random().toString(36).slice(2, 9)}`;
+  }
+})();
 
 function nowTimeStr(): string {
   const d = new Date();
@@ -140,7 +162,8 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [unreadChat, setUnreadChat] = useState(0);
   const [rtStatus, setRtStatus] = useState<'connecting' | 'connected' | 'local'>('connecting');
-  const [activeRoomCode, setActiveRoomCode] = useState(() => loadGame()?.player.roomCode || 'VALLEY-01');
+  const [activeRoomCode, setActiveRoomCode] = useState(() => (loadGame()?.player.roomCode || 'VALLEY-01').trim().toUpperCase());
+  const [visitingFarm, setVisitingFarm] = useState<VisitingFarmState | null>(null);
   const [pushBanner, setPushBanner] = useState<{ title: string; body: string; revision: number } | null>(null);
   const [savedPreview, setSavedPreview] = useState<GameState | null>(() => loadGame());
   const [language, setLanguage] = useState<Language>(() => loadGame()?.language ?? 'en');
@@ -192,12 +215,15 @@ export default function App() {
   const modalRef = useRef<ActiveModal>(null);
   const adminConfigRef = useRef<AdminConfig>(adminConfig);
   const adminOpenRef = useRef<boolean>(adminRouteActive);
+  const visitingFarmRef = useRef<VisitingFarmState | null>(visitingFarm);
+  const helpedRealFarmsRef = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<number | null>(null);
 
   modalRef.current = modal;
   adminConfigRef.current = adminConfig;
   adminOpenRef.current = adminRouteActive;
   chatOpenRef.current = chatOpen;
+  visitingFarmRef.current = visitingFarm;
 
   const closeAdminRoute = useCallback(() => {
     setAdminRouteActive(false);
@@ -274,13 +300,16 @@ export default function App() {
 
   const applyIncomingPushBundle = useCallback(
     (bundle: AppPushBundle) => {
-      const lastRev = getLastAppliedRevision();
-      if (bundle.revision <= lastRev) return;
+      if (!shouldApplyPushBundle(bundle)) return;
       setLastAppliedRevision(bundle.revision);
+      if (bundle.pushedAt) {
+        setLastAppliedPushAt(bundle.pushedAt);
+      }
 
       const merged: AdminConfig = {
         ...adminConfigRef.current,
-        pushRevision: bundle.revision,
+        brandName: bundle.brandName || adminConfigRef.current.brandName,
+        pushRevision: Math.max(adminConfigRef.current.pushRevision ?? 0, bundle.revision),
         announcement: bundle.announcement,
         maintenanceMode: bundle.maintenanceMode,
         ads: bundle.ads,
@@ -304,7 +333,7 @@ export default function App() {
     [handleUpdateAdminConfig]
   );
 
-  // Live OTA Push Receiver (polls Sync API + listens to instant BroadcastChannel)
+  // Live OTA Push Receiver: Supabase Realtime Cloud (<200ms worldwide to Android!) + Supabase DB + Local API + BroadcastChannel
   useEffect(() => {
     let ch: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
@@ -316,6 +345,11 @@ export default function App() {
       };
     }
 
+    // Real-time cloud OTA push listener (works on physical Android phones worldwide, zero SQL tables needed!)
+    const stopRealtimeOta = startOtaRealtimeSync((bundle) => {
+      applyIncomingPushBundle(bundle);
+    });
+
     const poll = async () => {
       const bundle = await fetchLatestAppPush(adminConfigRef.current.pushServerUrl);
       if (bundle) {
@@ -324,9 +358,10 @@ export default function App() {
     };
 
     poll();
-    const timer = window.setInterval(poll, 6000);
+    const timer = window.setInterval(poll, 8000);
     return () => {
       window.clearInterval(timer);
+      stopRealtimeOta();
       ch?.close();
     };
   }, [applyIncomingPushBundle]);
@@ -407,12 +442,34 @@ export default function App() {
     []
   );
 
-  // Live Cross-Device Multiplayer via Supabase Realtime (Presence + Broadcast + Local Fallback)
+  // Live Cross-Device Multiplayer via Supabase Realtime (Presence + Broadcast + Instant Handshake + Farm Sharing)
   useEffect(() => {
     if (!started) return;
 
+    const buildPosPayload = () => {
+      const p = stateRef.current.player;
+      return {
+        peerId: SESSION_PEER_ID,
+        room: activeRoomCode,
+        name: p.name,
+        level: p.level,
+        gold: p.gold,
+        x: p.x,
+        y: p.y,
+        facing: p.facing,
+        shirtColor: p.shirtColor || '#ef4444',
+        hatColor: p.hatColor || '#facc15',
+        visitingFarmOwnerId: visitingFarmRef.current?.ownerId ?? null,
+      };
+    };
+
     const session = new ValleyRealtimeSession(SESSION_PEER_ID, activeRoomCode, {
       onStatusChange: (status) => setRtStatus(status),
+      onPeerHello: () => {
+        // Instantly reply with our exact position + live farm snapshot so new peers see us in <250ms!
+        session.sendPosition(buildPosPayload());
+        session.sendFarmSnapshot(buildFarmSnapshot(stateRef.current, SESSION_PEER_ID));
+      },
       onPeerMove: (data) => {
         const list = remoteFarmersRef.current;
         const idx = list.findIndex((f) => f.id === data.peerId);
@@ -425,6 +482,7 @@ export default function App() {
           list[idx].facing = data.facing;
           list[idx].shirtColor = data.shirtColor || list[idx].shirtColor;
           list[idx].hatColor = data.hatColor || list[idx].hatColor;
+          list[idx].visitingFarmOwnerId = data.visitingFarmOwnerId ?? null;
           list[idx].lastSeen = Date.now();
         } else {
           list.push({
@@ -442,6 +500,7 @@ export default function App() {
             shirtColor: data.shirtColor || '#4f46e5',
             hatColor: data.hatColor || '#fde047',
             isRealPlayer: true,
+            visitingFarmOwnerId: data.visitingFarmOwnerId ?? null,
             lastSeen: Date.now(),
           });
           setChatMessages((prev) => [
@@ -449,15 +508,57 @@ export default function App() {
             {
               id: `join_${Date.now()}_${data.peerId}`,
               sender: 'Valley',
-              text: `🌟 ${data.name} (Lv.${data.level}) joined Room ${activeRoomCode}!`,
+              text: `🌟 ${data.name} (Lv.${data.level}) joined Room ${activeRoomCode}! Tap Meet or Visit Farm!`,
               time: nowTimeStr(),
               system: true,
             },
           ]);
+          showToast(`🌟 ${data.name} joined! Tap "Meet" or "Visit Farm" at top!`);
+          forceUiSync();
         }
       },
       onPeerLeave: (peerId) => {
+        const leaving = remoteFarmersRef.current.find((f) => f.id === peerId);
         remoteFarmersRef.current = remoteFarmersRef.current.filter((f) => f.id !== peerId);
+        if (leaving) {
+          forceUiSync();
+        }
+      },
+      onPeerFarmSnapshot: (snap) => {
+        const rf = remoteFarmersRef.current.find((f) => f.id === snap.ownerId);
+        if (rf) {
+          rf.farmSnapshot = snap;
+        }
+        if (visitingFarmRef.current && visitingFarmRef.current.ownerId === snap.ownerId) {
+          setVisitingFarm((prev) => (prev ? { ...prev, snapshot: snap, level: snap.level } : prev));
+        }
+      },
+      onFarmHelped: (help) => {
+        const st = stateRef.current;
+        let wateredCount = 0;
+        Object.values(st.tiles).forEach((t) => {
+          if (t.unlocked && t.tilled && !t.watered) {
+            t.watered = true;
+            wateredCount += 1;
+          }
+        });
+        soundEngine.playWater();
+        soundEngine.playHarvest();
+        spawnParticles(st.player.x - 0.5, st.player.y - 0.6, '#38bdf8', 16, 'sparkle');
+        spawnFloatingText(
+          st.player.x - 0.5,
+          st.player.y - 1.1,
+          `💧 ${help.fromName} watered your farm!`,
+          '#7dd3fc'
+        );
+        showToast(
+          wateredCount > 0
+            ? `💧 ${help.fromName} visited your farm and watered ${wateredCount} plots!`
+            : `💧 ${help.fromName} visited your farm and blessed your crops!`
+        );
+        saveGame(st);
+        session.sendFarmSnapshot(buildFarmSnapshot(st, SESSION_PEER_ID));
+        forceUiSync();
       },
       onChat: (data) => {
         const rf = remoteFarmersRef.current.find((f) => f.id === data.peerId);
@@ -506,54 +607,38 @@ export default function App() {
       },
     });
 
-    const p0 = stateRef.current.player;
-    session.start({
-      peerId: SESSION_PEER_ID,
-      room: activeRoomCode,
-      name: p0.name,
-      level: p0.level,
-      gold: p0.gold,
-      x: p0.x,
-      y: p0.y,
-      facing: p0.facing,
-      shirtColor: p0.shirtColor || '#ef4444',
-      hatColor: p0.hatColor || '#facc15',
-    });
+    session.start(buildPosPayload(), buildFarmSnapshot(stateRef.current, SESSION_PEER_ID));
     rtSessionRef.current = session;
 
-    let lastSentX = p0.x;
-    let lastSentY = p0.y;
+    let lastSentX = stateRef.current.player.x;
+    let lastSentY = stateRef.current.player.y;
     let tickCount = 0;
 
     const pingInterval = window.setInterval(() => {
       const p = stateRef.current.player;
       tickCount += 1;
       const moved = Math.hypot(p.x - lastSentX, p.y - lastSentY) > 0.03;
-      if (moved || tickCount % 12 === 0) {
+      if (moved || tickCount % 10 === 0) {
         lastSentX = p.x;
         lastSentY = p.y;
-        const payload = {
-          peerId: SESSION_PEER_ID,
-          room: activeRoomCode,
-          name: p.name,
-          level: p.level,
-          gold: p.gold,
-          x: p.x,
-          y: p.y,
-          facing: p.facing,
-          shirtColor: p.shirtColor || '#ef4444',
-          hatColor: p.hatColor || '#facc15',
-        };
+        const payload = buildPosPayload();
         session.sendPosition(payload);
-        if (tickCount % 24 === 0) {
+        if (tickCount % 25 === 0) {
           session.updatePresence(payload);
         }
       }
-      // Remove disconnected real peers (> 14s silent)
+      if (tickCount % 60 === 0) {
+        session.sendFarmSnapshot(buildFarmSnapshot(stateRef.current, SESSION_PEER_ID));
+      }
+      // Keep peers alive if they are in Supabase Presence OR heard within 35s (handles background tab throttling)
       const now = Date.now();
+      const before = remoteFarmersRef.current.length;
       remoteFarmersRef.current = remoteFarmersRef.current.filter(
-        (f) => !f.isRealPlayer || now - f.lastSeen < 14000
+        (f) => !f.isRealPlayer || session.isPeerInPresence(f.id) || now - f.lastSeen < 35000
       );
+      if (remoteFarmersRef.current.length !== before) {
+        forceUiSync();
+      }
     }, 110);
 
     return () => {
@@ -616,6 +701,37 @@ export default function App() {
         spawnFloatingText(state.player.x - 0.5, state.player.y - 1.1, `LEVEL UP! Lv.${state.player.level}`, '#fde047');
         showToast(`🎉 Level Up! Lv.${state.player.level} — Check Levels (L) for new unlocks!`);
       }
+      rtSessionRef.current?.sendFarmSnapshot(buildFarmSnapshot(state, SESSION_PEER_ID));
+      forceUiSync();
+    },
+    [forceUiSync, showToast, spawnFloatingText, spawnParticles]
+  );
+
+  const handleHelpVisitingRealFarm = useCallback(
+    (tx: number, ty: number) => {
+      const vf = visitingFarmRef.current;
+      if (!vf) return;
+      if (vf.helpedToday || helpedRealFarmsRef.current.has(vf.ownerId)) {
+        soundEngine.playWater();
+        spawnParticles(tx, ty, '#38bdf8', 8, 'circle');
+        showToast(`💧 Already watered ${vf.ownerName}'s farm today!`);
+        return;
+      }
+      helpedRealFarmsRef.current.add(vf.ownerId);
+      setVisitingFarm((prev) => (prev ? { ...prev, helpedToday: true } : prev));
+      const res = grantCoopHelpReward(stateRef.current);
+      if (vf.isRealPlayer) {
+        rtSessionRef.current?.sendFarmHelp(stateRef.current.player.name, vf.ownerId);
+      }
+      soundEngine.playWater();
+      soundEngine.playCoin();
+      spawnParticles(tx, ty, '#38bdf8', 14, 'sparkle');
+      spawnFloatingText(tx, ty - 0.5, '+30g  +24 XP 💧', '#7dd3fc');
+      showToast(
+        res.leveledUp
+          ? `🎉 Watered ${vf.ownerName}'s farm & LEVEL UP!`
+          : `💧 Watered ${vf.ownerName}'s farm! +30g & +24 XP`
+      );
       forceUiSync();
     },
     [forceUiSync, showToast, spawnFloatingText, spawnParticles]
@@ -632,6 +748,53 @@ export default function App() {
   const handleTriggerLandmarkOrEntity = useCallback(
     (id: string) => {
       const state = stateRef.current;
+
+      if (id.startsWith('farmer:')) {
+        const farmerId = id.slice(7);
+        soundEngine.playClick();
+        setModal({ type: 'player_interact', farmerId });
+        return;
+      }
+
+      if (id.startsWith('estate:')) {
+        const neighborId = id.slice(7);
+        const nbr = state.neighbors.find((n) => n.id === neighborId);
+        const est = WORLD_ESTATES.find((e) => e.neighborId === neighborId);
+        if (!nbr || !est) return;
+        if (!nbr.wateredToday) {
+          const res = helpNeighborWater(state, neighborId);
+          if (res.success) {
+            soundEngine.playWater();
+            soundEngine.playCoin();
+            spawnParticles(est.signX - 0.5, est.signY - 0.4, '#38bdf8', 14, 'sparkle');
+            spawnFloatingText(est.signX - 0.5, est.signY - 0.8, '+25g  +20 XP 💧', '#7dd3fc');
+            showToast(
+              res.leveledUp
+                ? `🎉 Watered ${est.ownerName}'s Farm & LEVEL UP!`
+                : `💧 Watered ${est.ownerName}'s crops! +25g & +20 XP`
+            );
+            forceUiSync();
+          }
+        } else if (!nbr.harvestedToday) {
+          const res = pickNeighborCrop(state, neighborId);
+          if (res.success && res.cropId) {
+            soundEngine.playHarvest();
+            spawnParticles(est.signX - 0.5, est.signY - 0.4, '#facc15', 14, 'sparkle');
+            spawnFloatingText(
+              est.signX - 0.5,
+              est.signY - 0.8,
+              `+1 ${CROP_NAMES[state.language][res.cropId]}!`,
+              '#fef08a'
+            );
+            showToast(`🌾 Picked +1 ${CROP_NAMES[state.language][res.cropId]} at ${est.farmName}!`);
+            forceUiSync();
+          }
+        } else {
+          soundEngine.playClick();
+          showToast(`✓ You already helped & harvested at ${est.farmName} today!`);
+        }
+        return;
+      }
 
       if (id.startsWith('npc:')) {
         const npcId = id.slice(4) as NpcId;
@@ -730,6 +893,13 @@ export default function App() {
         state.player.stamina = Math.min(state.player.maxStamina, state.player.stamina + 8);
         spawnFloatingText(LANDMARKS.waterWell.x - 0.5, LANDMARKS.waterWell.y - 0.8, '+8 ⚡ 💧', '#7dd3fc');
         forceUiSync();
+      } else if (id === 'landmark:lakePier') {
+        soundEngine.playWater();
+        spawnParticles(LANDMARKS.lakePier.x - 0.5, LANDMARKS.lakePier.y - 0.5, '#38bdf8', 14, 'sparkle');
+        state.player.stamina = Math.min(state.player.maxStamina, state.player.stamina + 12);
+        spawnFloatingText(LANDMARKS.lakePier.x - 0.5, LANDMARKS.lakePier.y - 0.8, '+12 ⚡ Lake Breeze 🌊', '#7dd3fc');
+        showToast('🌊 Relaxed on Emerald Lake Pier! +12 Stamina restored.');
+        forceUiSync();
       }
     },
     [forceUiSync, handleSleep, showToast, spawnFloatingText, spawnParticles]
@@ -737,7 +907,7 @@ export default function App() {
 
   const handlePrimaryInteract = useCallback(() => {
     const state = stateRef.current;
-    const prompt = getNearestLandmarkPrompt(state);
+    const prompt = getNearestLandmarkPrompt(state, remoteFarmersRef.current, visitingFarmRef.current);
     if (prompt) {
       handleTriggerLandmarkOrEntity(prompt.id);
       return;
@@ -751,6 +921,17 @@ export default function App() {
     const off = offsets[state.player.facing];
     const frontX = Math.floor(state.player.x + off.dx);
     const frontY = Math.floor(state.player.y + off.dy);
+    if (visitingFarmRef.current) {
+      if (
+        frontX >= FIELD_ORIGIN_X &&
+        frontX < FIELD_ORIGIN_X + FIELD_MAX_W &&
+        frontY >= FIELD_ORIGIN_Y &&
+        frontY < FIELD_ORIGIN_Y + FIELD_MAX_H
+      ) {
+        handleHelpVisitingRealFarm(frontX, frontY);
+      }
+      return;
+    }
     if (state.tiles[tileKey(frontX, frontY)]?.unlocked) {
       handleTileAction(frontX, frontY);
       return;
@@ -760,7 +941,7 @@ export default function App() {
     if (state.tiles[tileKey(underX, underY)]?.unlocked) {
       handleTileAction(underX, underY);
     }
-  }, [handleTileAction, handleTriggerLandmarkOrEntity]);
+  }, [handleHelpVisitingRealFarm, handleTileAction, handleTriggerLandmarkOrEntity]);
 
   const startNewGame = () => {
     const fresh = createInitialState(language);
@@ -777,6 +958,8 @@ export default function App() {
     if (activeMap) {
       fresh.player.roomCode = activeMap.defaultRoomCode;
     }
+    setActiveRoomCode((fresh.player.roomCode || 'VALLEY-01').trim().toUpperCase());
+    setVisitingFarm(null);
     stateRef.current = fresh;
     soundEngine.muted = false;
     soundEngine.playMorning();
@@ -818,6 +1001,8 @@ export default function App() {
     targetState.player.shirtColor = account.shirtColor;
     targetState.player.hatColor = account.hatColor;
     targetState.language = language;
+    setActiveRoomCode((targetState.player.roomCode || 'VALLEY-01').trim().toUpperCase());
+    setVisitingFarm(null);
     stateRef.current = targetState;
     saveGame(targetState);
     syncPlayerSaveToSupabase(targetState).catch(() => {});
@@ -881,6 +1066,7 @@ export default function App() {
         st.neighbors = st.neighbors.filter((n) => n.id !== action.id);
       } else if (action.type === 'apply_map') {
         st.player.roomCode = action.map.defaultRoomCode;
+        setActiveRoomCode((action.map.defaultRoomCode || 'VALLEY-01').trim().toUpperCase());
       } else if (action.type === 'reset_save') {
         const fresh = createInitialState(language);
         stateRef.current = fresh;
@@ -900,6 +1086,18 @@ export default function App() {
     const loaded = loadGame();
     if (loaded) {
       loaded.language = language;
+      // Align saved neighbor map coordinates with expanded 72x46 estates
+      const estateCoords: Record<string, { mapX: number; mapY: number }> = {
+        nbr_amine: { mapX: 13, mapY: 67 },
+        nbr_claire: { mapX: 82, mapY: 18 },
+        nbr_yasmine: { mapX: 39, mapY: 79 },
+        nbr_leo: { mapX: 79, mapY: 69 },
+      };
+      loaded.neighbors = loaded.neighbors.map((n) =>
+        estateCoords[n.id] ? { ...n, ...estateCoords[n.id] } : n
+      );
+      setActiveRoomCode((loaded.player.roomCode || 'VALLEY-01').trim().toUpperCase());
+      setVisitingFarm(null);
       stateRef.current = loaded;
       soundEngine.muted = loaded.muted;
       soundEngine.playClick();
@@ -1071,8 +1269,8 @@ export default function App() {
           if (!modalRef.current && !adminOpenRef.current) {
             advanceRealTimeSimulation(state, dt);
 
-            // PLUGIN: Auto-Harvest Magnet harvests mature crops within 1.25 tiles!
-            if (isPluginEnabled(adminConfigRef.current, 'auto_harvest_aura')) {
+            // PLUGIN: Auto-Harvest Magnet harvests mature crops within 1.25 tiles (own farm only)
+            if (!visitingFarmRef.current && isPluginEnabled(adminConfigRef.current, 'auto_harvest_aura')) {
               const px = Math.floor(state.player.x);
               const py = Math.floor(state.player.y);
               for (let dy = -1; dy <= 1; dy++) {
@@ -1251,7 +1449,10 @@ export default function App() {
           cameraRef.current.x += (desiredX - cameraRef.current.x) * Math.min(1, dt * 8);
           cameraRef.current.y += (desiredY - cameraRef.current.y) * Math.min(1, dt * 8);
 
-          const nearPrompt = modalRef.current || adminOpenRef.current ? null : getNearestLandmarkPrompt(state);
+          const nearPrompt =
+            modalRef.current || adminOpenRef.current
+              ? null
+              : getNearestLandmarkPrompt(state, remoteFarmersRef.current, visitingFarmRef.current);
           const activeTheme = getActiveTheme(adminConfigRef.current);
           const activeMap = adminConfigRef.current.maps.find(
             (m) => m.id === adminConfigRef.current.activeMapId
@@ -1262,6 +1463,7 @@ export default function App() {
           renderGameWorld(ctx, {
             state,
             remoteFarmers: remoteFarmersRef.current,
+            visitingFarm: visitingFarmRef.current,
             theme: activeTheme,
             butterfliesEnabled: activeMap?.butterfliesEnabled ?? true,
             cameraX: cameraRef.current.x,
@@ -1381,7 +1583,52 @@ export default function App() {
       }
     }
 
-    // 5. Unlocked Farm Plot
+    // 4.5. Physical Walkable Neighbor Farm Estates (click sign or crop patch to water/pick!)
+    for (const est of WORLD_ESTATES) {
+      const clickedSign = Math.hypot(wx - est.signX, wy - est.signY) < 1.3;
+      const clickedField =
+        wx >= est.fieldRect.x &&
+        wx <= est.fieldRect.x + est.fieldRect.w &&
+        wy >= est.fieldRect.y &&
+        wy <= est.fieldRect.y + est.fieldRect.h;
+      if (clickedSign || clickedField) {
+        const dist = Math.hypot(state.player.x - est.signX, state.player.y - est.signY);
+        if (dist <= 3.6 || (clickedField && Math.hypot(state.player.x - wx, state.player.y - wy) <= 3.2)) {
+          handleTriggerLandmarkOrEntity(`estate:${est.neighborId}`);
+        } else {
+          state.player.targetX = est.gateX;
+          state.player.targetY = est.gateY;
+          pendingActionRef.current = {
+            kind: 'estate',
+            x: est.gateX,
+            y: est.gateY,
+            id: `estate:${est.neighborId}`,
+          };
+        }
+        return;
+      }
+    }
+
+    // 5. Farm Plot (if visiting a real player's farm -> water & help their crops!)
+    if (
+      visitingFarmRef.current &&
+      tx >= FIELD_ORIGIN_X &&
+      tx < FIELD_ORIGIN_X + FIELD_MAX_W &&
+      ty >= FIELD_ORIGIN_Y &&
+      ty < FIELD_ORIGIN_Y + FIELD_MAX_H
+    ) {
+      const dist = Math.hypot(state.player.x - (tx + 0.5), state.player.y - (ty + 0.5));
+      if (dist <= 3.2) {
+        handleHelpVisitingRealFarm(tx, ty);
+      } else {
+        state.player.targetX = tx + 0.5;
+        state.player.targetY = ty + 0.5;
+        pendingActionRef.current = null;
+        handleHelpVisitingRealFarm(tx, ty);
+      }
+      return;
+    }
+
     const tile = state.tiles[tileKey(tx, ty)];
     if (tile && tile.unlocked) {
       const dist = Math.hypot(state.player.x - (tx + 0.5), state.player.y - (ty + 0.5));
@@ -1495,18 +1742,87 @@ export default function App() {
     }
   };
 
-  const handleFastTravel = (region: 'homestead' | 'village' | 'plaza') => {
+  const handleFastTravel = (region: FastTravelRegion) => {
     const dest = WORLD_REGIONS[region];
+    setVisitingFarm(null);
     stateRef.current.player.x = dest.x;
     stateRef.current.player.y = dest.y;
     stateRef.current.player.targetX = null;
     stateRef.current.player.targetY = null;
     soundEngine.playPlant();
     spawnParticles(dest.x - 0.5, dest.y - 0.5, '#818cf8', 14, 'sparkle');
+    showToast(`${dest.emoji} Traveled to ${dest.label}!`);
+    forceUiSync();
+  };
+
+  const handleVisitNeighborEstate = (neighborId: string) => {
+    const est = WORLD_ESTATES.find((e) => e.neighborId === neighborId);
+    if (!est) return;
+    setVisitingFarm(null);
+    stateRef.current.player.x = est.gateX;
+    stateRef.current.player.y = est.gateY;
+    stateRef.current.player.targetX = null;
+    stateRef.current.player.targetY = null;
+    soundEngine.playPlant();
+    spawnParticles(est.gateX - 0.5, est.gateY - 0.5, est.accentColor, 16, 'sparkle');
+    showToast(`🏡 Arrived at ${est.farmName}! Click crops or press [E] to water & pick!`);
+    forceUiSync();
+  };
+
+  const handleVisitPlayerFarm = (farmer: RemoteFarmer) => {
+    // If this AI farmer owns one of the 4 physical Valley Estates, travel straight to their estate!
+    const physicalEstate = WORLD_ESTATES.find((e) => e.botId === farmer.id);
+    if (physicalEstate) {
+      handleVisitNeighborEstate(physicalEstate.neighborId);
+      return;
+    }
+    const snap = farmer.farmSnapshot ?? buildFallbackFarmSnapshot(farmer);
+    setVisitingFarm({
+      ownerId: farmer.id,
+      ownerName: farmer.name,
+      level: farmer.level,
+      isRealPlayer: farmer.isRealPlayer,
+      snapshot: snap,
+      helpedToday: helpedRealFarmsRef.current.has(farmer.id),
+    });
+    stateRef.current.player.x = 7.5;
+    stateRef.current.player.y = 5.2;
+    stateRef.current.player.targetX = null;
+    stateRef.current.player.targetY = null;
+    soundEngine.playPlant();
+    spawnParticles(7.0, 4.7, '#fde047', 16, 'sparkle');
+    showToast(`🏡 Visiting ${farmer.name}'s Farm! Click their crops to water & earn +30g!`);
+    forceUiSync();
+  };
+
+  const handleReturnHomeFromVisit = () => {
+    setVisitingFarm(null);
+    stateRef.current.player.x = 6.5;
+    stateRef.current.player.y = 5.0;
+    stateRef.current.player.targetX = null;
+    stateRef.current.player.targetY = null;
+    soundEngine.playPlant();
+    spawnParticles(6.0, 4.5, '#4ade80', 14, 'sparkle');
+    showToast('🏠 Welcome back to your own GreenSAGA Farm!');
     forceUiSync();
   };
 
   const handleMeetPlayer = (farmer: RemoteFarmer) => {
+    // If meeting a real player who is currently on their own homestead, visit their farm so you meet them there!
+    if (farmer.isRealPlayer && farmer.x < 15.6 && farmer.y < 20.5 && !farmer.visitingFarmOwnerId) {
+      const snap = farmer.farmSnapshot ?? buildFallbackFarmSnapshot(farmer);
+      setVisitingFarm({
+        ownerId: farmer.id,
+        ownerName: farmer.name,
+        level: farmer.level,
+        isRealPlayer: true,
+        snapshot: snap,
+        helpedToday: helpedRealFarmsRef.current.has(farmer.id),
+      });
+    } else {
+      setVisitingFarm(null);
+    }
+
     // Pick a walkable spot right beside the target player
     const offsets = [
       { dx: -1.0, dy: 0 },
@@ -1769,6 +2085,7 @@ export default function App() {
         state={stateRef.current}
         adminConfig={adminConfig}
         remoteFarmers={remoteFarmersRef.current}
+        visitingFarm={visitingFarm}
         fps={fps}
         onlineCount={remoteFarmersRef.current.length + 1}
         hoverInfo={hoverInfo}
@@ -1797,6 +2114,9 @@ export default function App() {
           soundEngine.playClick();
           setModal({ type: 'levels' });
         }}
+        onReturnHomeFromVisit={handleReturnHomeFromVisit}
+        onMeetPlayer={handleMeetPlayer}
+        onVisitPlayerFarm={handleVisitPlayerFarm}
         chatOpen={chatOpen}
         unreadChat={unreadChat}
         onToggleChat={() => {
@@ -1857,6 +2177,8 @@ export default function App() {
           chatMessages={chatMessages}
           onFastTravel={handleFastTravel}
           onMeetPlayer={handleMeetPlayer}
+          onVisitPlayerFarm={handleVisitPlayerFarm}
+          onVisitNeighborEstate={handleVisitNeighborEstate}
           onInteractPlayer={(farmer) => setModal({ type: 'player_interact', farmerId: farmer.id })}
           onUpdateProfile={handleUpdateProfile}
           onSendChat={handleSendChat}
@@ -1920,6 +2242,8 @@ export default function App() {
             state={stateRef.current}
             farmer={target}
             onWave={handleWaveAtFarmer}
+            onMeet={handleMeetPlayer}
+            onVisitFarm={handleVisitPlayerFarm}
             onGiftGold={handleGiftGoldToFarmer}
             onGiftItem={handleGiftItemToFarmer}
             onQuickGreet={(f) => {

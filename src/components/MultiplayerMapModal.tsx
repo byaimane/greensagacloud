@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Compass, Droplets, Hand, Map, MapPin, Search, Send, Sparkles, Users, X } from 'lucide-react';
+import { Compass, Droplets, Hand, Home, Map, MapPin, Search, Send, Sparkles, Users, X } from 'lucide-react';
 import { CROPS } from '../data/crops';
-import { MAP_COLS, MAP_ROWS, WORLD_REGIONS } from '../data/worldMap';
+import { FastTravelRegion, MAP_COLS, MAP_ROWS, WORLD_REGIONS } from '../data/worldMap';
 import { CROP_NAMES, t } from '../i18n/translations';
 import { ChatMessage, GameState, NeighborFarm, RemoteFarmer } from '../types/game';
 
@@ -9,8 +9,10 @@ interface MultiplayerMapModalProps {
   state: GameState;
   remoteFarmers: RemoteFarmer[];
   chatMessages: ChatMessage[];
-  onFastTravel: (region: 'homestead' | 'village' | 'plaza') => void;
+  onFastTravel: (region: FastTravelRegion) => void;
   onMeetPlayer: (farmer: RemoteFarmer) => void;
+  onVisitPlayerFarm: (farmer: RemoteFarmer) => void;
+  onVisitNeighborEstate: (neighborId: string) => void;
   onInteractPlayer: (farmer: RemoteFarmer) => void;
   onUpdateProfile: (name: string, roomCode: string) => void;
   onSendChat: (text: string) => void;
@@ -26,6 +28,8 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
   chatMessages,
   onFastTravel,
   onMeetPlayer,
+  onVisitPlayerFarm,
+  onVisitNeighborEstate,
   onInteractPlayer,
   onUpdateProfile,
   onSendChat,
@@ -50,6 +54,7 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
       ? true
       : nbr.ownerName.toLowerCase().includes(q) || nbr.farmName.toLowerCase().includes(q)
   );
+  const realCount = remoteFarmers.filter((f) => f.isRealPlayer).length + 1;
 
   const handleChatSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,13 +69,13 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="rpg-panel modal-card" style={{ maxWidth: 880 }} onClick={(e) => e.stopPropagation()}>
+      <div className="rpg-panel modal-card" style={{ maxWidth: 920 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Map size={22} color="#fde047" />
             <div>
               <h2 className="font-display" style={{ margin: 0, fontSize: 20 }}>
-                {t(language, 'mpTitle')}
+                {t(language, 'mpTitle')} <span style={{ fontSize: 12, color: '#86efac' }}>· 72×46 Open Valley</span>
               </h2>
               <div style={{ fontSize: 12, color: '#fde68a' }}>{t(language, 'mpSubtitle')}</div>
             </div>
@@ -83,7 +88,7 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
           </button>
         </div>
 
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Player Multiplayer Profile & Room Code */}
           <div
             style={{
@@ -94,7 +99,7 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
               background: '#fff',
               border: '2px solid #e7e5e4',
               borderRadius: 12,
-              padding: '10px 12px',
+              padding: '9px 12px',
             }}
           >
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700 }}>
@@ -103,7 +108,12 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                 value={nameInput}
                 maxLength={18}
                 onChange={(e) => setNameInput(e.target.value)}
-                onBlur={() => onUpdateProfile(nameInput.trim() || 'Farmer GreenSAGA', roomInput.trim().toUpperCase() || 'VALLEY-01')}
+                onBlur={() =>
+                  onUpdateProfile(
+                    nameInput.trim() || 'Farmer GreenSAGA',
+                    roomInput.trim().toUpperCase() || 'VALLEY-01'
+                  )
+                }
                 className="rpg-input"
               />
             </label>
@@ -113,7 +123,12 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                 value={roomInput}
                 maxLength={12}
                 onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
-                onBlur={() => onUpdateProfile(nameInput.trim() || 'Farmer GreenSAGA', roomInput.trim().toUpperCase() || 'VALLEY-01')}
+                onBlur={() =>
+                  onUpdateProfile(
+                    nameInput.trim() || 'Farmer GreenSAGA',
+                    roomInput.trim().toUpperCase() || 'VALLEY-01'
+                  )
+                }
                 className="rpg-input"
                 style={{ width: 112 }}
               />
@@ -122,7 +137,10 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
               className="rpg-btn rpg-btn-gold"
               style={{ padding: '6px 12px', fontSize: 12 }}
               onClick={() => {
-                onUpdateProfile(nameInput.trim() || 'Farmer GreenSAGA', roomInput.trim().toUpperCase() || 'VALLEY-01');
+                onUpdateProfile(
+                  nameInput.trim() || 'Farmer GreenSAGA',
+                  roomInput.trim().toUpperCase() || 'VALLEY-01'
+                );
                 onWaveEmote();
               }}
             >
@@ -139,7 +157,7 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                 gap: 5,
               }}
             >
-              <Users size={15} /> {remoteFarmers.length + 1} {t(language, 'onlinePlayers')}
+              <Users size={15} /> {realCount} Real · {remoteFarmers.length + 1} Total
             </span>
           </div>
 
@@ -171,10 +189,10 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
               }}
               placeholder={
                 language === 'fr'
-                  ? 'Rechercher un joueur par nom sur la carte...'
+                  ? 'Rechercher un joueur par nom pour le rejoindre ou visiter sa ferme...'
                   : language === 'ar'
-                  ? 'ابحث عن لاعب بالاسم على الخريطة...'
-                  : 'Search player by name on the map (e.g. Amine, Claire, Sara)...'
+                  ? 'ابحث عن لاعب بالاسم للقائه أو زيارة مزرعته...'
+                  : 'Search player by name to Meet or Visit their Farm...'
               }
               style={{
                 flex: 1,
@@ -212,28 +230,37 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
 
           {/* Interactive Map + Right Panel Grid */}
           <div className="mp-grid">
-            {/* Interactive Valley World Map */}
-            <div className="mp-map-board">
-              {/* Creek river decoration */}
-              <div className="mp-river-line" />
-              <div className="mp-road-line" />
+            {/* Expanded 72x46 Interactive Valley World Map */}
+            <div className="mp-map-board" style={{ minHeight: 340 }}>
+              {/* Creek river decoration aligned with x = 16.5 / 72 ≈ 23% */}
+              <div className="mp-river-line" style={{ left: '23%' }} />
+              <div className="mp-road-line" style={{ top: '22%' }} />
+              <div className="mp-road-line" style={{ top: '63%' }} />
 
               {/* Core Fast Travel Regions */}
               <button
                 className="mp-node mp-node-core"
-                style={{ left: `${WORLD_REGIONS.homestead.mapX}%`, top: `${WORLD_REGIONS.homestead.mapY}%`, background: '#16a34a' }}
+                style={{
+                  left: `${WORLD_REGIONS.homestead.mapX}%`,
+                  top: `${WORLD_REGIONS.homestead.mapY}%`,
+                  background: '#16a34a',
+                }}
                 onClick={() => {
                   onFastTravel('homestead');
                   onClose();
                 }}
               >
                 <span>🏡</span>
-                <b>GreenSAGA Farm</b>
+                <b>My Farm</b>
               </button>
 
               <button
                 className="mp-node mp-node-core"
-                style={{ left: `${WORLD_REGIONS.village.mapX}%`, top: `${WORLD_REGIONS.village.mapY}%`, background: '#ea580c' }}
+                style={{
+                  left: `${WORLD_REGIONS.village.mapX}%`,
+                  top: `${WORLD_REGIONS.village.mapY}%`,
+                  background: '#ea580c',
+                }}
                 onClick={() => {
                   onFastTravel('village');
                   onClose();
@@ -245,17 +272,37 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
 
               <button
                 className="mp-node mp-node-core"
-                style={{ left: `${WORLD_REGIONS.plaza.mapX}%`, top: `${WORLD_REGIONS.plaza.mapY}%`, background: '#4f46e5' }}
+                style={{
+                  left: `${WORLD_REGIONS.plaza.mapX}%`,
+                  top: `${WORLD_REGIONS.plaza.mapY}%`,
+                  background: '#4f46e5',
+                }}
                 onClick={() => {
                   onFastTravel('plaza');
                   onClose();
                 }}
               >
                 <span>🌐</span>
-                <b>MP Plaza ({remoteFarmers.length + 1})</b>
+                <b>MP Plaza</b>
               </button>
 
-              {/* Neighbor Farms */}
+              <button
+                className="mp-node mp-node-core"
+                style={{
+                  left: `${WORLD_REGIONS.lake.mapX}%`,
+                  top: `${WORLD_REGIONS.lake.mapY}%`,
+                  background: '#0284c7',
+                }}
+                onClick={() => {
+                  onFastTravel('lake');
+                  onClose();
+                }}
+              >
+                <span>🌊</span>
+                <b>Emerald Lake</b>
+              </button>
+
+              {/* Walkable Neighbor Farm Estates */}
               {neighbors.map((nbr) => {
                 const isSelected = activeNeighbor?.id === nbr.id;
                 const matchesSearch = !q || matchingNeighbors.some((m) => m.id === nbr.id);
@@ -267,30 +314,34 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                       left: `${nbr.mapX}%`,
                       top: `${nbr.mapY}%`,
                       borderColor: nbr.accentColor,
-                      opacity: matchesSearch ? 1 : 0.28,
+                      opacity: matchesSearch ? 1 : 0.25,
                       transform: q && matchesSearch ? 'translate(-50%, -50%) scale(1.12)' : undefined,
                     }}
                     onClick={() => setSelectedNeighbor(nbr)}
+                    onDoubleClick={() => {
+                      onVisitNeighborEstate(nbr.id);
+                      onClose();
+                    }}
                   >
                     <span
                       className="mp-dot"
                       style={{ background: nbr.online ? '#22c55e' : '#94a3b8' }}
                     />
                     <b>{nbr.ownerName}</b>
-                    <span style={{ fontSize: 10, opacity: 0.85 }}>Lv.{nbr.level}</span>
+                    <span style={{ fontSize: 10, opacity: 0.85 }}>🏡 Lv.{nbr.level}</span>
                   </button>
                 );
               })}
 
-              {/* Live Online & AI Farmer Pins Moving on the Map! */}
+              {/* Live Real Online & AI Farmer Pins Moving on the 72x46 Map! */}
               {remoteFarmers.map((rf) => {
                 const isMatch = !q || rf.name.toLowerCase().includes(q);
-                const leftPct = Math.min(93, Math.max(7, (rf.x / MAP_COLS) * 100));
-                const topPct = Math.min(90, Math.max(10, (rf.y / MAP_ROWS) * 100));
+                const leftPct = Math.min(94, Math.max(6, (rf.x / MAP_COLS) * 100));
+                const topPct = Math.min(92, Math.max(8, (rf.y / MAP_ROWS) * 100));
                 return (
                   <button
                     key={rf.id}
-                    title={`Click to meet ${rf.name} (Lv.${rf.level})`}
+                    title={`Click to Meet ${rf.name} (Lv.${rf.level})`}
                     onClick={() => {
                       onMeetPlayer(rf);
                       onClose();
@@ -299,14 +350,16 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                       position: 'absolute',
                       left: `${leftPct}%`,
                       top: `${topPct}%`,
-                      transform: `translate(-50%, -50%) scale(${q && isMatch ? 1.25 : 1})`,
+                      transform: `translate(-50%, -50%) scale(${q && isMatch ? 1.25 : rf.isRealPlayer ? 1.08 : 1})`,
                       opacity: isMatch ? 1 : 0.2,
                       background: rf.isRealPlayer ? '#4f46e5' : '#0f172a',
                       color: '#fff',
-                      border: q && isMatch ? '2.5px solid #fde047' : '2px solid #fff',
+                      border: q && isMatch ? '2.5px solid #fde047' : rf.isRealPlayer ? '2px solid #86efac' : '2px solid #fff',
                       boxShadow:
                         q && isMatch
                           ? '0 0 0 5px rgba(250, 204, 21, 0.55), 0 4px 10px rgba(0,0,0,0.4)'
+                          : rf.isRealPlayer
+                          ? '0 0 0 4px rgba(74, 222, 128, 0.35), 0 3px 8px rgba(0,0,0,0.35)'
                           : '0 3px 8px rgba(0,0,0,0.3)',
                       borderRadius: 999,
                       padding: '2px 7px',
@@ -314,7 +367,7 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                       fontWeight: 800,
                       cursor: 'pointer',
                       whiteSpace: 'nowrap',
-                      zIndex: q && isMatch ? 8 : 3,
+                      zIndex: q && isMatch ? 9 : rf.isRealPlayer ? 6 : 3,
                     }}
                   >
                     {rf.isRealPlayer ? '★' : '🤖'} {rf.name}
@@ -326,16 +379,16 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
               <div
                 className="mp-you-ping"
                 style={{
-                  left: `${Math.min(92, Math.max(8, (player.x / MAP_COLS) * 100))}%`,
-                  top: `${Math.min(90, Math.max(10, (player.y / MAP_ROWS) * 100))}%`,
+                  left: `${Math.min(93, Math.max(7, (player.x / MAP_COLS) * 100))}%`,
+                  top: `${Math.min(91, Math.max(9, (player.y / MAP_ROWS) * 100))}%`,
                 }}
                 title="You are here"
               />
             </div>
 
-            {/* Right Sidebar: Selected Neighbor Farm + Live Valley Chat */}
+            {/* Right Sidebar: Selected Neighbor Estate + Live Players + Chat */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {/* Neighbor Interaction Card */}
+              {/* Neighbor Estate Card with Travel to Farm! */}
               {activeNeighbor && (
                 <div className="item-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -348,21 +401,19 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                         {activeNeighbor.regionLabel}
                       </div>
                     </div>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 800,
-                        padding: '2px 8px',
-                        borderRadius: 999,
-                        background: activeNeighbor.online ? '#dcfce7' : '#f5f5f4',
-                        color: activeNeighbor.online ? '#15803d' : '#78716c',
+                    <button
+                      className="rpg-btn rpg-btn-indigo"
+                      style={{ fontSize: 11.5, padding: '5px 10px' }}
+                      onClick={() => {
+                        onVisitNeighborEstate(activeNeighbor.id);
+                        onClose();
                       }}
                     >
-                      {activeNeighbor.online ? '● Online' : 'Offline'}
-                    </span>
+                      <Home size={13} /> Travel to Farm
+                    </button>
                   </div>
 
-                  <div style={{ fontSize: 12.5, color: '#78350f', fontWeight: 700 }}>
+                  <div style={{ fontSize: 12, color: '#78350f', fontWeight: 700 }}>
                     Specialty Crop: <span style={{ color: CROPS[activeNeighbor.specialtyCrop].color }}>●</span>{' '}
                     {CROP_NAMES[language][activeNeighbor.specialtyCrop]}
                   </div>
@@ -370,20 +421,20 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button
                       className="rpg-btn rpg-btn-primary"
-                      style={{ flex: 1, fontSize: 12, padding: '7px 10px' }}
+                      style={{ flex: 1, fontSize: 11.5, padding: '6px 9px' }}
                       disabled={activeNeighbor.wateredToday}
                       onClick={() => onHelpNeighbor(activeNeighbor.id)}
                     >
-                      <Droplets size={14} />
+                      <Droplets size={13} />
                       {activeNeighbor.wateredToday ? t(language, 'helpedDone') : t(language, 'visitHelp')}
                     </button>
                     <button
                       className="rpg-btn rpg-btn-gold"
-                      style={{ flex: 1, fontSize: 12, padding: '7px 10px' }}
+                      style={{ flex: 1, fontSize: 11.5, padding: '6px 9px' }}
                       disabled={activeNeighbor.harvestedToday}
                       onClick={() => onPickNeighborCrop(activeNeighbor.id)}
                     >
-                      <Sparkles size={14} />
+                      <Sparkles size={13} />
                       {activeNeighbor.harvestedToday ? t(language, 'pickedDone') : t(language, 'visitHarvest')}
                     </button>
                   </div>
@@ -391,40 +442,23 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
               )}
 
               {/* Fast Travel Quick Buttons */}
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  className="rpg-btn rpg-btn-neutral"
-                  style={{ flex: 1, fontSize: 11.5, padding: '6px 8px' }}
-                  onClick={() => {
-                    onFastTravel('homestead');
-                    onClose();
-                  }}
-                >
-                  <Compass size={13} /> Farm
-                </button>
-                <button
-                  className="rpg-btn rpg-btn-neutral"
-                  style={{ flex: 1, fontSize: 11.5, padding: '6px 8px' }}
-                  onClick={() => {
-                    onFastTravel('village');
-                    onClose();
-                  }}
-                >
-                  <Compass size={13} /> Village
-                </button>
-                <button
-                  className="rpg-btn rpg-btn-warm"
-                  style={{ flex: 1, fontSize: 11.5, padding: '6px 8px' }}
-                  onClick={() => {
-                    onFastTravel('plaza');
-                    onClose();
-                  }}
-                >
-                  <Compass size={13} /> MP Plaza
-                </button>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {(['homestead', 'village', 'plaza', 'lake'] as FastTravelRegion[]).map((reg) => (
+                  <button
+                    key={reg}
+                    className={`rpg-btn ${reg === 'plaza' ? 'rpg-btn-warm' : 'rpg-btn-neutral'}`}
+                    style={{ flex: 1, fontSize: 11, padding: '6px 7px', minWidth: 74 }}
+                    onClick={() => {
+                      onFastTravel(reg);
+                      onClose();
+                    }}
+                  >
+                    <Compass size={12} /> {WORLD_REGIONS[reg].label}
+                  </button>
+                ))}
               </div>
 
-              {/* Live AI & Player Valley Leaderboard + Search Results */}
+              {/* Live Real Online & AI Farmers List (Real players sorted first!) */}
               <div
                 style={{
                   background: '#fff',
@@ -434,9 +468,9 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                 }}
               >
                 <div style={{ fontWeight: 800, fontSize: 12, color: '#78350f', marginBottom: 6 }}>
-                  🏆 {q ? `Search Results (${matchingFarmers.length})` : `Live Valley Players (${remoteFarmers.length + 1} Active)`}
+                  🏆 {q ? `Search Results (${matchingFarmers.length})` : `Live Valley Farmers (${realCount} Real · ${remoteFarmers.length + 1} Active)`}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 125, overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 145, overflowY: 'auto' }}>
                   {(() => {
                     const list = [
                       ...(!q || player.name.toLowerCase().includes(q)
@@ -446,8 +480,8 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                               name: `${player.name} (You)`,
                               level: player.level,
                               gold: player.gold,
-                              activity: 'Playing Live',
-                              isAi: false,
+                              isReal: true,
+                              isYou: true,
                               farmer: null as RemoteFarmer | null,
                             },
                           ]
@@ -457,11 +491,14 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                         name: rf.name,
                         level: rf.level,
                         gold: rf.gold ?? rf.level * 240,
-                        activity: rf.activity || 'Exploring',
-                        isAi: !rf.isRealPlayer,
+                        isReal: rf.isRealPlayer,
+                        isYou: false,
                         farmer: rf,
                       })),
-                    ].sort((a, b) => b.gold - a.gold);
+                    ].sort((a, b) => {
+                      if (a.isReal !== b.isReal) return a.isReal ? -1 : 1;
+                      return b.gold - a.gold;
+                    });
 
                     if (list.length === 0) {
                       return (
@@ -471,7 +508,7 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                       );
                     }
 
-                    return list.map((entry, idx) => (
+                    return list.map((entry) => (
                       <div
                         key={entry.id}
                         style={{
@@ -482,15 +519,35 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                           fontSize: 11.5,
                           padding: '4px 6px',
                           borderRadius: 8,
-                          background: entry.id === 'you' ? '#fef9c3' : '#f8fafc',
+                          background: entry.isYou
+                            ? '#fef9c3'
+                            : entry.isReal
+                            ? '#eef2ff'
+                            : '#f8fafc',
+                          border: entry.isReal && !entry.isYou ? '1px solid #c7d2fe' : 'none',
                         }}
                       >
                         <div style={{ minWidth: 0 }}>
                           <span style={{ fontWeight: 800 }}>
-                            #{idx + 1} {entry.isAi ? '🤖' : '★'} {entry.name}
+                            {entry.isReal ? '★' : '🤖'} {entry.name}
                           </span>{' '}
+                          {entry.isReal && !entry.isYou && (
+                            <span
+                              style={{
+                                background: '#22c55e',
+                                color: '#fff',
+                                borderRadius: 999,
+                                padding: '1px 5px',
+                                fontSize: 9,
+                                fontWeight: 900,
+                                marginInlineEnd: 4,
+                              }}
+                            >
+                              LIVE
+                            </span>
+                          )}
                           <span style={{ fontWeight: 600, color: '#64748b', fontSize: 10.5 }}>
-                            Lv.{entry.level} · {entry.gold.toLocaleString()}g
+                            Lv.{entry.level}
                           </span>
                         </div>
                         {entry.farmer && (
@@ -521,14 +578,35 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                onInteractPlayer(entry.farmer!);
+                                onVisitPlayerFarm(entry.farmer!);
+                                onClose();
                               }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 3,
+                                background: '#16a34a',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: 7,
+                                padding: '3px 7px',
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                              }}
+                              title={`Travel to ${entry.name}'s Farm`}
+                            >
+                              <Home size={11} /> Farm
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onInteractPlayer(entry.farmer!)}
                               style={{
                                 background: '#fef08a',
                                 color: '#422006',
                                 border: '1px solid #eab308',
                                 borderRadius: 7,
-                                padding: '3px 7px',
+                                padding: '3px 6px',
                                 fontSize: 10.5,
                                 fontWeight: 800,
                                 cursor: 'pointer',

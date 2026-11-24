@@ -1,5 +1,5 @@
 import React from 'react';
-import { Coins, Gift, Hand, MessageCircle, X } from 'lucide-react';
+import { Coins, Gift, Hand, Home, MapPin, MessageCircle, X } from 'lucide-react';
 import { ITEMS } from '../data/crops';
 import { ITEM_NAMES } from '../i18n/translations';
 import { GameState, ItemId, RemoteFarmer } from '../types/game';
@@ -8,6 +8,8 @@ interface PlayerInteractModalProps {
   state: GameState;
   farmer: RemoteFarmer;
   onWave: (farmer: RemoteFarmer) => void;
+  onMeet: (farmer: RemoteFarmer) => void;
+  onVisitFarm: (farmer: RemoteFarmer) => void;
   onGiftGold: (farmer: RemoteFarmer, amount: number) => void;
   onGiftItem: (farmer: RemoteFarmer, itemId: ItemId) => void;
   onQuickGreet: (farmer: RemoteFarmer) => void;
@@ -18,6 +20,8 @@ export const PlayerInteractModal: React.FC<PlayerInteractModalProps> = ({
   state,
   farmer,
   onWave,
+  onMeet,
+  onVisitFarm,
   onGiftGold,
   onGiftItem,
   onQuickGreet,
@@ -74,6 +78,30 @@ export const PlayerInteractModal: React.FC<PlayerInteractModalProps> = ({
         </div>
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Meet & Visit Farm Travel Actions */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              className="rpg-btn rpg-btn-indigo"
+              style={{ flex: 1, fontSize: 13 }}
+              onClick={() => {
+                onMeet(farmer);
+                onClose();
+              }}
+            >
+              <MapPin size={15} /> Meet {farmer.name}
+            </button>
+            <button
+              className="rpg-btn rpg-btn-gold"
+              style={{ flex: 1, fontSize: 13 }}
+              onClick={() => {
+                onVisitFarm(farmer);
+                onClose();
+              }}
+            >
+              <Home size={15} /> Visit Farm 🏡
+            </button>
+          </div>
+
           {/* Quick Social Actions */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
@@ -84,7 +112,7 @@ export const PlayerInteractModal: React.FC<PlayerInteractModalProps> = ({
               <Hand size={15} /> Wave 👋 {!farmer.wavedToday && '(+20g)'}
             </button>
             <button
-              className="rpg-btn rpg-btn-indigo"
+              className="rpg-btn rpg-btn-warm"
               style={{ flex: 1, fontSize: 13 }}
               onClick={() => {
                 onQuickGreet(farmer);

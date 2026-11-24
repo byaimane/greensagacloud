@@ -95,6 +95,7 @@ export interface AppPushBundle {
   revision: number;
   pushedAt: string;
   appId: string;
+  brandName?: string;
   notification?: {
     title: string;
     body: string;

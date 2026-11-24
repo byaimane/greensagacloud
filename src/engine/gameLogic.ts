@@ -28,7 +28,9 @@ import {
   CropId,
   DaySummary,
   Direction,
+  FarmSnapshot,
   FarmTile,
+  FarmTileSnapshot,
   GameState,
   HotbarSlotType,
   ItemId,
@@ -36,6 +38,7 @@ import {
   LivestockAnimal,
   NpcId,
   OrchardTree,
+  RemoteFarmer,
   ToolId,
   ToolTier,
 } from '../types/game';
@@ -1030,4 +1033,77 @@ export function formatClock(timeOfDay: number): string {
   const ampm = h24 >= 12 ? 'PM' : 'AM';
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
   return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
+
+export function buildFarmSnapshot(state: GameState, ownerId: string): FarmSnapshot {
+  const tiles: FarmTileSnapshot[] = [];
+  for (const t of Object.values(state.tiles)) {
+    if (!t.unlocked) continue;
+    if (!t.tilled && !t.crop) continue;
+    tiles.push({
+      x: t.x,
+      y: t.y,
+      tilled: t.tilled,
+      watered: t.watered,
+      fertilized: t.fertilized,
+      cropId: t.crop?.cropId,
+      progress: t.crop ? Math.round(t.crop.progress * 100) / 100 : undefined,
+    });
+  }
+  return {
+    ownerId,
+    ownerName: state.player.name,
+    level: state.player.level,
+    houseLevel: state.houseLevel,
+    farmExpansionLevel: state.farmExpansionLevel,
+    sprinklerLevel: state.sprinklerLevel,
+    shirtColor: state.player.shirtColor || '#ef4444',
+    hatColor: state.player.hatColor || '#facc15',
+    tiles,
+    animalCount: state.livestock.length,
+  };
+}
+
+export function buildFallbackFarmSnapshot(farmer: RemoteFarmer): FarmSnapshot {
+  const cropCycle: CropId[] = ['turnip', 'wheat', 'carrot', 'strawberry', 'corn', 'pumpkin', 'starfruit', 'golden_melon'];
+  const tiles: FarmTileSnapshot[] = [];
+  const exp = farmer.level >= 7 ? 3 : farmer.level >= 4 ? 2 : farmer.level >= 2 ? 1 : 0;
+  const maxCols = exp === 0 ? 6 : exp === 1 ? 8 : exp === 2 ? 10 : 12;
+  const maxRows = exp >= 2 ? 6 : 5;
+  for (let ry = 0; ry < maxRows; ry++) {
+    for (let rx = 0; rx < maxCols; rx++) {
+      if ((rx + ry) % 3 === 2) continue;
+      const cropIdx = Math.min(cropCycle.length - 1, Math.floor((rx + ry + farmer.level) % Math.max(2, farmer.level)));
+      tiles.push({
+        x: FIELD_ORIGIN_X + rx,
+        y: FIELD_ORIGIN_Y + ry,
+        tilled: true,
+        watered: (rx + ry) % 2 === 0,
+        fertilized: farmer.level >= 4 && rx % 2 === 0,
+        cropId: cropCycle[cropIdx],
+        progress: 0.45 + ((rx * 7 + ry * 13) % 55) / 100,
+      });
+    }
+  }
+  return {
+    ownerId: farmer.id,
+    ownerName: farmer.name,
+    level: farmer.level,
+    houseLevel: farmer.level >= 7 ? 3 : farmer.level >= 3 ? 2 : 1,
+    farmExpansionLevel: exp,
+    sprinklerLevel: farmer.level >= 6 ? 2 : farmer.level >= 2 ? 1 : 0,
+    shirtColor: farmer.shirtColor,
+    hatColor: farmer.hatColor,
+    tiles,
+    animalCount: 2,
+  };
+}
+
+export function grantCoopHelpReward(state: GameState): { leveledUp: boolean } {
+  state.player.gold += 30;
+  state.stats.goldEarned += 30;
+  state.stats.neighborsHelped += 1;
+  const xpRes = grantXp(state, 24);
+  saveGame(state);
+  return { leveledUp: xpRes.leveledUp };
 }
