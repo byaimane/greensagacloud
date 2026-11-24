@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Compass, Droplets, Hand, Map, Send, Sparkles, Users, X } from 'lucide-react';
+import { Compass, Droplets, Hand, Map, MapPin, Search, Send, Sparkles, Users, X } from 'lucide-react';
 import { CROPS } from '../data/crops';
-import { WORLD_REGIONS } from '../data/worldMap';
+import { MAP_COLS, MAP_ROWS, WORLD_REGIONS } from '../data/worldMap';
 import { CROP_NAMES, t } from '../i18n/translations';
 import { ChatMessage, GameState, NeighborFarm, RemoteFarmer } from '../types/game';
 
@@ -10,6 +10,8 @@ interface MultiplayerMapModalProps {
   remoteFarmers: RemoteFarmer[];
   chatMessages: ChatMessage[];
   onFastTravel: (region: 'homestead' | 'village' | 'plaza') => void;
+  onMeetPlayer: (farmer: RemoteFarmer) => void;
+  onInteractPlayer: (farmer: RemoteFarmer) => void;
   onUpdateProfile: (name: string, roomCode: string) => void;
   onSendChat: (text: string) => void;
   onWaveEmote: () => void;
@@ -23,6 +25,8 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
   remoteFarmers,
   chatMessages,
   onFastTravel,
+  onMeetPlayer,
+  onInteractPlayer,
   onUpdateProfile,
   onSendChat,
   onWaveEmote,
@@ -34,7 +38,18 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
   const [selectedNeighbor, setSelectedNeighbor] = useState<NeighborFarm | null>(neighbors[0] ?? null);
   const [nameInput, setNameInput] = useState(player.name);
   const [roomInput, setRoomInput] = useState(player.roomCode);
+  const [searchQuery, setSearchQuery] = useState('');
   const [chatInput, setChatInput] = useState('');
+
+  const q = searchQuery.trim().toLowerCase();
+  const matchingFarmers = remoteFarmers.filter((rf) =>
+    !q ? true : rf.name.toLowerCase().includes(q)
+  );
+  const matchingNeighbors = neighbors.filter((nbr) =>
+    !q
+      ? true
+      : nbr.ownerName.toLowerCase().includes(q) || nbr.farmName.toLowerCase().includes(q)
+  );
 
   const handleChatSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,6 +143,73 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
             </span>
           </div>
 
+          {/* Search Users by Name on the Map */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: '#fff',
+              border: '2px solid #818cf8',
+              borderRadius: 12,
+              padding: '7px 12px',
+            }}
+          >
+            <Search size={16} color="#4f46e5" />
+            <input
+              value={searchQuery}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSearchQuery(val);
+                const lower = val.trim().toLowerCase();
+                if (lower) {
+                  const hit = neighbors.find(
+                    (n) => n.ownerName.toLowerCase().includes(lower) || n.farmName.toLowerCase().includes(lower)
+                  );
+                  if (hit) setSelectedNeighbor(hit);
+                }
+              }}
+              placeholder={
+                language === 'fr'
+                  ? 'Rechercher un joueur par nom sur la carte...'
+                  : language === 'ar'
+                  ? 'ابحث عن لاعب بالاسم على الخريطة...'
+                  : 'Search player by name on the map (e.g. Amine, Claire, Sara)...'
+              }
+              style={{
+                flex: 1,
+                border: 'none',
+                outline: 'none',
+                background: 'transparent',
+                fontFamily: 'inherit',
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#1e1b4b',
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{
+                  background: '#e0e7ff',
+                  border: 'none',
+                  borderRadius: 999,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: '#3730a3',
+                  cursor: 'pointer',
+                }}
+              >
+                Clear
+              </button>
+            )}
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#4f46e5', whiteSpace: 'nowrap' }}>
+              {matchingFarmers.length} live
+            </span>
+          </div>
+
           {/* Interactive Map + Right Panel Grid */}
           <div className="mp-grid">
             {/* Interactive Valley World Map */}
@@ -176,11 +258,18 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
               {/* Neighbor Farms */}
               {neighbors.map((nbr) => {
                 const isSelected = activeNeighbor?.id === nbr.id;
+                const matchesSearch = !q || matchingNeighbors.some((m) => m.id === nbr.id);
                 return (
                   <button
                     key={nbr.id}
                     className={`mp-node mp-node-neighbor ${isSelected ? 'selected' : ''}`}
-                    style={{ left: `${nbr.mapX}%`, top: `${nbr.mapY}%`, borderColor: nbr.accentColor }}
+                    style={{
+                      left: `${nbr.mapX}%`,
+                      top: `${nbr.mapY}%`,
+                      borderColor: nbr.accentColor,
+                      opacity: matchesSearch ? 1 : 0.28,
+                      transform: q && matchesSearch ? 'translate(-50%, -50%) scale(1.12)' : undefined,
+                    }}
                     onClick={() => setSelectedNeighbor(nbr)}
                   >
                     <span
@@ -193,12 +282,52 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                 );
               })}
 
+              {/* Live Online & AI Farmer Pins Moving on the Map! */}
+              {remoteFarmers.map((rf) => {
+                const isMatch = !q || rf.name.toLowerCase().includes(q);
+                const leftPct = Math.min(93, Math.max(7, (rf.x / MAP_COLS) * 100));
+                const topPct = Math.min(90, Math.max(10, (rf.y / MAP_ROWS) * 100));
+                return (
+                  <button
+                    key={rf.id}
+                    title={`Click to meet ${rf.name} (Lv.${rf.level})`}
+                    onClick={() => {
+                      onMeetPlayer(rf);
+                      onClose();
+                    }}
+                    style={{
+                      position: 'absolute',
+                      left: `${leftPct}%`,
+                      top: `${topPct}%`,
+                      transform: `translate(-50%, -50%) scale(${q && isMatch ? 1.25 : 1})`,
+                      opacity: isMatch ? 1 : 0.2,
+                      background: rf.isRealPlayer ? '#4f46e5' : '#0f172a',
+                      color: '#fff',
+                      border: q && isMatch ? '2.5px solid #fde047' : '2px solid #fff',
+                      boxShadow:
+                        q && isMatch
+                          ? '0 0 0 5px rgba(250, 204, 21, 0.55), 0 4px 10px rgba(0,0,0,0.4)'
+                          : '0 3px 8px rgba(0,0,0,0.3)',
+                      borderRadius: 999,
+                      padding: '2px 7px',
+                      fontSize: 10,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      zIndex: q && isMatch ? 8 : 3,
+                    }}
+                  >
+                    {rf.isRealPlayer ? '★' : '🤖'} {rf.name}
+                  </button>
+                );
+              })}
+
               {/* Live Player Marker */}
               <div
                 className="mp-you-ping"
                 style={{
-                  left: `${Math.min(92, Math.max(8, (player.x / 38) * 100))}%`,
-                  top: `${Math.min(90, Math.max(10, (player.y / 22) * 100))}%`,
+                  left: `${Math.min(92, Math.max(8, (player.x / MAP_COLS) * 100))}%`,
+                  top: `${Math.min(90, Math.max(10, (player.y / MAP_ROWS) * 100))}%`,
                 }}
                 title="You are here"
               />
@@ -295,7 +424,7 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                 </button>
               </div>
 
-              {/* Live AI & Player Valley Leaderboard */}
+              {/* Live AI & Player Valley Leaderboard + Search Results */}
               <div
                 style={{
                   background: '#fff',
@@ -305,50 +434,114 @@ export const MultiplayerMapModal: React.FC<MultiplayerMapModalProps> = ({
                 }}
               >
                 <div style={{ fontWeight: 800, fontSize: 12, color: '#78350f', marginBottom: 6 }}>
-                  🏆 Live Valley Players ({remoteFarmers.length + 1} Active)
+                  🏆 {q ? `Search Results (${matchingFarmers.length})` : `Live Valley Players (${remoteFarmers.length + 1} Active)`}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 105, overflowY: 'auto' }}>
-                  {[
-                    {
-                      id: 'you',
-                      name: `${player.name} (You)`,
-                      level: player.level,
-                      gold: player.gold,
-                      activity: 'Playing Live',
-                      isAi: false,
-                    },
-                    ...remoteFarmers.map((rf) => ({
-                      id: rf.id,
-                      name: rf.name,
-                      level: rf.level,
-                      gold: rf.gold ?? rf.level * 240,
-                      activity: rf.activity || 'Exploring',
-                      isAi: !rf.isRealPlayer,
-                    })),
-                  ]
-                    .sort((a, b) => b.gold - a.gold)
-                    .map((entry, idx) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 125, overflowY: 'auto' }}>
+                  {(() => {
+                    const list = [
+                      ...(!q || player.name.toLowerCase().includes(q)
+                        ? [
+                            {
+                              id: 'you',
+                              name: `${player.name} (You)`,
+                              level: player.level,
+                              gold: player.gold,
+                              activity: 'Playing Live',
+                              isAi: false,
+                              farmer: null as RemoteFarmer | null,
+                            },
+                          ]
+                        : []),
+                      ...matchingFarmers.map((rf) => ({
+                        id: rf.id,
+                        name: rf.name,
+                        level: rf.level,
+                        gold: rf.gold ?? rf.level * 240,
+                        activity: rf.activity || 'Exploring',
+                        isAi: !rf.isRealPlayer,
+                        farmer: rf,
+                      })),
+                    ].sort((a, b) => b.gold - a.gold);
+
+                    if (list.length === 0) {
+                      return (
+                        <div style={{ fontSize: 12, color: '#78716c', textAlign: 'center', padding: '10px 0' }}>
+                          No player found matching “{searchQuery}”.
+                        </div>
+                      );
+                    }
+
+                    return list.map((entry, idx) => (
                       <div
                         key={entry.id}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
+                          gap: 6,
                           fontSize: 11.5,
-                          padding: '3px 6px',
+                          padding: '4px 6px',
                           borderRadius: 8,
                           background: entry.id === 'you' ? '#fef9c3' : '#f8fafc',
                         }}
                       >
-                        <span style={{ fontWeight: 800 }}>
-                          #{idx + 1} {entry.isAi ? '🤖' : '⭐'} {entry.name}{' '}
-                          <span style={{ fontWeight: 600, color: '#64748b' }}>({entry.activity})</span>
-                        </span>
-                        <span style={{ fontWeight: 800, color: '#ca8a04' }}>
-                          Lv.{entry.level} · {entry.gold.toLocaleString()}g
-                        </span>
+                        <div style={{ minWidth: 0 }}>
+                          <span style={{ fontWeight: 800 }}>
+                            #{idx + 1} {entry.isAi ? '🤖' : '★'} {entry.name}
+                          </span>{' '}
+                          <span style={{ fontWeight: 600, color: '#64748b', fontSize: 10.5 }}>
+                            Lv.{entry.level} · {entry.gold.toLocaleString()}g
+                          </span>
+                        </div>
+                        {entry.farmer && (
+                          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onMeetPlayer(entry.farmer!);
+                                onClose();
+                              }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 3,
+                                background: '#4f46e5',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: 7,
+                                padding: '3px 7px',
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                              }}
+                              title={`Teleport to meet ${entry.name}`}
+                            >
+                              <MapPin size={11} /> Meet
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onInteractPlayer(entry.farmer!);
+                              }}
+                              style={{
+                                background: '#fef08a',
+                                color: '#422006',
+                                border: '1px solid #eab308',
+                                borderRadius: 7,
+                                padding: '3px 7px',
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                              }}
+                              title={`Wave, Gift, or Trade with ${entry.name}`}
+                            >
+                              👋
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    ));
+                  })()}
                 </div>
               </div>
 

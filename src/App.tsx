@@ -1506,6 +1506,33 @@ export default function App() {
     forceUiSync();
   };
 
+  const handleMeetPlayer = (farmer: RemoteFarmer) => {
+    // Pick a walkable spot right beside the target player
+    const offsets = [
+      { dx: -1.0, dy: 0 },
+      { dx: 1.0, dy: 0 },
+      { dx: 0, dy: 1.0 },
+      { dx: 0, dy: -1.0 },
+    ];
+    let destX = farmer.x;
+    let destY = farmer.y;
+    for (const o of offsets) {
+      if (!isPositionBlocked(farmer.x + o.dx, farmer.y + o.dy)) {
+        destX = farmer.x + o.dx;
+        destY = farmer.y + o.dy;
+        break;
+      }
+    }
+    stateRef.current.player.x = destX;
+    stateRef.current.player.y = destY;
+    stateRef.current.player.targetX = null;
+    stateRef.current.player.targetY = null;
+    soundEngine.playPlant();
+    spawnParticles(destX - 0.5, destY - 0.5, '#fde047', 14, 'sparkle');
+    showToast(`📍 Teleported right next to ${farmer.name}! Click them to wave, chat, or trade.`);
+    forceUiSync();
+  };
+
   const handleUpdateProfile = (name: string, roomCode: string) => {
     const cleanRoom = roomCode.trim().toUpperCase() || 'VALLEY-01';
     stateRef.current.player.name = name;
@@ -1829,6 +1856,8 @@ export default function App() {
           remoteFarmers={remoteFarmersRef.current}
           chatMessages={chatMessages}
           onFastTravel={handleFastTravel}
+          onMeetPlayer={handleMeetPlayer}
+          onInteractPlayer={(farmer) => setModal({ type: 'player_interact', farmerId: farmer.id })}
           onUpdateProfile={handleUpdateProfile}
           onSendChat={handleSendChat}
           onWaveEmote={handleWaveEmote}
