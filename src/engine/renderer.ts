@@ -1469,11 +1469,11 @@ function drawRemoteFarmer(ctx: CanvasRenderingContext2D, rf: RemoteFarmer, T: nu
   ctx.fillRect(2, -27 - bob, 2.2, 2.5);
 
   // Online pill tag
-  const tag = `${rf.isRealPlayer ? '' : '🤖 '}${rf.name} · Lv.${rf.level}`;
+  const tag = `${rf.isRealPlayer ? '★ ' : '🤖 '}${rf.name} · Lv.${rf.level}`;
   ctx.font = '700 10.5px Nunito, sans-serif';
   const tw = ctx.measureText(tag).width + 14;
   drawRoundedRect(ctx, -tw / 2, 11, tw, 17, 8);
-  ctx.fillStyle = rf.isRealPlayer ? 'rgba(79, 70, 229, 0.9)' : 'rgba(15, 23, 42, 0.78)';
+  ctx.fillStyle = rf.isRealPlayer ? 'rgba(79, 70, 229, 0.94)' : 'rgba(15, 23, 42, 0.78)';
   ctx.fill();
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
@@ -1485,7 +1485,10 @@ function drawRemoteFarmer(ctx: CanvasRenderingContext2D, rf: RemoteFarmer, T: nu
   ctx.arc(-tw / 2 + 5, 19.5, 2.5, 0, Math.PI * 2);
   ctx.fill();
 
-  if (rf.emote && (rf.emoteTimer ?? 0) > 0) {
+  // Live Comic Speech Bubble above head!
+  if (rf.chatBubble && (rf.chatBubbleTimer ?? 0) > 0) {
+    drawSpeechBubble(ctx, rf.chatBubble, -50 - bob);
+  } else if (rf.emote && (rf.emoteTimer ?? 0) > 0) {
     ctx.fillStyle = '#ffffff';
     drawRoundedRect(ctx, -14, -56 - bob, 28, 22, 8);
     ctx.fill();
@@ -1493,6 +1496,31 @@ function drawRemoteFarmer(ctx: CanvasRenderingContext2D, rf: RemoteFarmer, T: nu
     ctx.fillText(rf.emote, 0, -40 - bob);
   }
 
+  ctx.restore();
+}
+
+function drawSpeechBubble(ctx: CanvasRenderingContext2D, rawText: string, topY: number) {
+  const msg = rawText.length > 34 ? `${rawText.slice(0, 33)}…` : rawText;
+  ctx.save();
+  ctx.font = '700 11px Nunito, Cairo, sans-serif';
+  const tw = Math.min(200, Math.max(46, ctx.measureText(msg).width + 18));
+  drawRoundedRect(ctx, -tw / 2, topY - 14, tw, 24, 10);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+  ctx.fill();
+  ctx.strokeStyle = '#4f46e5';
+  ctx.lineWidth = 1.8;
+  ctx.stroke();
+  // Pointer triangle
+  ctx.beginPath();
+  ctx.moveTo(-4, topY + 10);
+  ctx.lineTo(4, topY + 10);
+  ctx.lineTo(0, topY + 15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#1e1b4b';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(msg, 0, topY - 2);
   ctx.restore();
 }
 
@@ -1630,6 +1658,18 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState, T: number, 
         : '#f59e0b';
     ctx.fillRect(-5, -22, 12, 6);
     ctx.restore();
+  }
+
+  // Local player live speech bubble or emote!
+  if (p.chatBubble && (p.chatBubbleTimer ?? 0) > 0) {
+    drawSpeechBubble(ctx, p.chatBubble, -54 - bob);
+  } else if (p.emote && (p.emoteTimer ?? 0) > 0) {
+    ctx.fillStyle = '#ffffff';
+    drawRoundedRect(ctx, -14, -60 - bob, 28, 22, 8);
+    ctx.fill();
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.emote, 0, -44 - bob);
   }
 
   ctx.restore();

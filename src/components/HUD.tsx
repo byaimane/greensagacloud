@@ -10,6 +10,7 @@ import {
   Map,
   Maximize2,
   Megaphone,
+  MessageCircle,
   Minimize2,
   Moon,
   ScrollText,
@@ -49,6 +50,9 @@ interface HUDProps {
   onOpenShop: () => void;
   onOpenMap: () => void;
   onOpenLevels: () => void;
+  chatOpen: boolean;
+  unreadChat: number;
+  onToggleChat: () => void;
   onClickAd: (adId: string) => void;
   onSleep: () => void;
   onToggleMute: () => void;
@@ -84,6 +88,9 @@ export const HUD: React.FC<HUDProps> = ({
   onOpenShop,
   onOpenMap,
   onOpenLevels,
+  chatOpen,
+  unreadChat,
+  onToggleChat,
   onClickAd,
   onSleep,
   onToggleMute,
@@ -327,6 +334,39 @@ export const HUD: React.FC<HUDProps> = ({
             >
               <Map size={15} />
               {t(language, 'map')} ({onlineCount})
+            </button>
+
+            <button
+              className={`rpg-btn ${chatOpen ? 'rpg-btn-primary' : 'rpg-btn-neutral'}`}
+              style={{ padding: '6px 10px', fontSize: 12, position: 'relative' }}
+              onClick={onToggleChat}
+              title="Live Multiplayer Chat (T)"
+            >
+              <MessageCircle size={15} />
+              Chat
+              {!chatOpen && unreadChat > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    minWidth: 18,
+                    height: 18,
+                    padding: '0 4px',
+                    borderRadius: 999,
+                    background: '#ef4444',
+                    color: '#fff',
+                    fontSize: 10,
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: '2px solid #fff',
+                  }}
+                >
+                  {unreadChat > 9 ? '9+' : unreadChat}
+                </span>
+              )}
             </button>
 
             <button

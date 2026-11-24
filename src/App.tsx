@@ -10,8 +10,10 @@ import { DaySummaryModal } from './components/DaySummaryModal';
 import { HUD } from './components/HUD';
 import { LandingPage } from './components/LandingPage';
 import { LevelsModal } from './components/LevelsModal';
+import { LiveChatOverlay } from './components/LiveChatOverlay';
 import { MultiplayerMapModal } from './components/MultiplayerMapModal';
 import { NpcModal } from './components/NpcModal';
+import { PlayerInteractModal } from './components/PlayerInteractModal';
 import { QuestLogModal } from './components/QuestLogModal';
 import { ShopModal } from './components/ShopModal';
 import { TutorialOverlay } from './components/TutorialOverlay';
@@ -78,6 +80,7 @@ import {
   sendCloudChatMessage,
   syncPlayerSaveToSupabase,
 } from './lib/supabaseClient';
+import { ValleyRealtimeSession } from './lib/realtimeMultiplayer';
 import { CROP_NAMES, ITEM_NAMES } from './i18n/translations';
 import { AdminConfig, AppPushBundle, MapPreset } from './types/admin';
 import {
@@ -106,6 +109,7 @@ type ActiveModal =
   | { type: 'artisan' }
   | { type: 'map' }
   | { type: 'npc'; npcId: NpcId }
+  | { type: 'player_interact'; farmerId: string }
   | { type: 'day_summary'; summary: DaySummary };
 
 interface PendingClickAction {
@@ -133,6 +137,10 @@ export default function App() {
   const [currentAccount, setCurrentAccount] = useState<PlayerAccount | null>(() => getCurrentAccount());
   const [authModalMode, setAuthModalMode] = useState<'register' | 'login' | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [unreadChat, setUnreadChat] = useState(0);
+  const [rtStatus, setRtStatus] = useState<'connecting' | 'connected' | 'local'>('connecting');
+  const [activeRoomCode, setActiveRoomCode] = useState(() => loadGame()?.player.roomCode || 'VALLEY-01');
   const [pushBanner, setPushBanner] = useState<{ title: string; body: string; revision: number } | null>(null);
   const [savedPreview, setSavedPreview] = useState<GameState | null>(() => loadGame());
   const [language, setLanguage] = useState<Language>(() => loadGame()?.language ?? 'en');
@@ -172,7 +180,8 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef<GameState>(createInitialState(language));
   const remoteFarmersRef = useRef<RemoteFarmer[]>(createInitialBotFarmers());
-  const channelRef = useRef<BroadcastChannel | null>(null);
+  const rtSessionRef = useRef<ValleyRealtimeSession | null>(null);
+  const chatOpenRef = useRef<boolean>(false);
   const keysRef = useRef<Set<string>>(new Set());
   const cameraRef = useRef({ x: 0, y: 0 });
   const hoverTileRef = useRef<{ x: number; y: number } | null>(null);
@@ -188,6 +197,7 @@ export default function App() {
   modalRef.current = modal;
   adminConfigRef.current = adminConfig;
   adminOpenRef.current = adminRouteActive;
+  chatOpenRef.current = chatOpen;
 
   const closeAdminRoute = useCallback(() => {
     setAdminRouteActive(false);
@@ -397,83 +407,161 @@ export default function App() {
     []
   );
 
-  // Live Multi-Tab Multiplayer Sync via BroadcastChannel
+  // Live Cross-Device Multiplayer via Supabase Realtime (Presence + Broadcast + Local Fallback)
   useEffect(() => {
-    if (!started || typeof BroadcastChannel === 'undefined') return;
-    const ch = new BroadcastChannel('ouagx_multiplayer_v1');
-    channelRef.current = ch;
+    if (!started) return;
 
-    ch.onmessage = (ev) => {
-      const data = ev.data;
-      if (!data || data.peerId === SESSION_PEER_ID) return;
-      if (data.room !== stateRef.current.player.roomCode) return;
-
-      if (data.type === 'pos') {
+    const session = new ValleyRealtimeSession(SESSION_PEER_ID, activeRoomCode, {
+      onStatusChange: (status) => setRtStatus(status),
+      onPeerMove: (data) => {
         const list = remoteFarmersRef.current;
         const idx = list.findIndex((f) => f.id === data.peerId);
         if (idx >= 0) {
-          list[idx].x = data.x;
-          list[idx].y = data.y;
+          list[idx].targetX = data.x;
+          list[idx].targetY = data.y;
           list[idx].name = data.name;
           list[idx].level = data.level;
+          list[idx].gold = data.gold;
           list[idx].facing = data.facing;
+          list[idx].shirtColor = data.shirtColor || list[idx].shirtColor;
+          list[idx].hatColor = data.hatColor || list[idx].hatColor;
           list[idx].lastSeen = Date.now();
         } else {
           list.push({
             id: data.peerId,
             name: data.name,
             level: data.level,
+            gold: data.gold,
+            activity: 'Online Now',
             room: data.room,
             x: data.x,
             y: data.y,
             targetX: data.x,
             targetY: data.y,
             facing: data.facing,
-            shirtColor: '#4f46e5',
-            hatColor: '#fde047',
+            shirtColor: data.shirtColor || '#4f46e5',
+            hatColor: data.hatColor || '#fde047',
             isRealPlayer: true,
             lastSeen: Date.now(),
           });
+          setChatMessages((prev) => [
+            ...prev.slice(-28),
+            {
+              id: `join_${Date.now()}_${data.peerId}`,
+              sender: 'Valley',
+              text: `🌟 ${data.name} (Lv.${data.level}) joined Room ${activeRoomCode}!`,
+              time: nowTimeStr(),
+              system: true,
+            },
+          ]);
         }
-      } else if (data.type === 'chat') {
+      },
+      onPeerLeave: (peerId) => {
+        remoteFarmersRef.current = remoteFarmersRef.current.filter((f) => f.id !== peerId);
+      },
+      onChat: (data) => {
+        const rf = remoteFarmersRef.current.find((f) => f.id === data.peerId);
+        if (rf) {
+          rf.chatBubble = data.text;
+          rf.chatBubbleTimer = 4.6;
+        }
         setChatMessages((prev) => [
-          ...prev.slice(-24),
-          { id: `msg_${Date.now()}_${Math.random()}`, sender: data.sender, text: data.text, time: nowTimeStr() },
+          ...prev.slice(-28),
+          { id: `rt_${Date.now()}_${Math.random()}`, sender: data.sender, text: data.text, time: nowTimeStr() },
         ]);
-      } else if (data.type === 'emote') {
+        if (!chatOpenRef.current) setUnreadChat((u) => u + 1);
+      },
+      onEmote: (data) => {
         const rf = remoteFarmersRef.current.find((f) => f.id === data.peerId);
         if (rf) {
           rf.emote = data.emote;
-          rf.emoteTimer = 2.6;
+          rf.emoteTimer = 2.8;
+          spawnParticles(rf.x - 0.5, rf.y - 0.6, '#fde047', 6, 'sparkle');
         }
-      }
-    };
+      },
+      onGiftReceived: (gift) => {
+        const st = stateRef.current;
+        if (gift.kind === 'gold' && gift.amount) {
+          st.player.gold += gift.amount;
+          st.stats.goldEarned += gift.amount;
+          soundEngine.playCoin();
+          spawnParticles(st.player.x - 0.5, st.player.y - 0.6, '#facc15', 14, 'sparkle');
+          spawnFloatingText(st.player.x - 0.5, st.player.y - 1.1, `+${gift.amount}g from ${gift.fromName}!`, '#fde047');
+          showToast(`💰 ${gift.fromName} sent you +${gift.amount}g!`);
+        } else if (gift.kind === 'item' && gift.itemId) {
+          const q = gift.qty ?? 1;
+          addItem(st, gift.itemId, q);
+          soundEngine.playHarvest();
+          spawnParticles(st.player.x - 0.5, st.player.y - 0.6, '#f472b6', 12, 'heart');
+          spawnFloatingText(
+            st.player.x - 0.5,
+            st.player.y - 1.1,
+            `+${q} ${ITEM_NAMES[st.language][gift.itemId]}!`,
+            '#fda4af'
+          );
+          showToast(`🎁 ${gift.fromName} gifted you ${q}× ${ITEM_NAMES[st.language][gift.itemId]}!`);
+        }
+        saveGame(st);
+        forceUiSync();
+      },
+    });
+
+    const p0 = stateRef.current.player;
+    session.start({
+      peerId: SESSION_PEER_ID,
+      room: activeRoomCode,
+      name: p0.name,
+      level: p0.level,
+      gold: p0.gold,
+      x: p0.x,
+      y: p0.y,
+      facing: p0.facing,
+      shirtColor: p0.shirtColor || '#ef4444',
+      hatColor: p0.hatColor || '#facc15',
+    });
+    rtSessionRef.current = session;
+
+    let lastSentX = p0.x;
+    let lastSentY = p0.y;
+    let tickCount = 0;
 
     const pingInterval = window.setInterval(() => {
       const p = stateRef.current.player;
-      ch.postMessage({
-        type: 'pos',
-        peerId: SESSION_PEER_ID,
-        room: p.roomCode,
-        name: p.name,
-        level: p.level,
-        x: p.x,
-        y: p.y,
-        facing: p.facing,
-      });
-      // Prune stale real peers (> 5s silent)
+      tickCount += 1;
+      const moved = Math.hypot(p.x - lastSentX, p.y - lastSentY) > 0.03;
+      if (moved || tickCount % 12 === 0) {
+        lastSentX = p.x;
+        lastSentY = p.y;
+        const payload = {
+          peerId: SESSION_PEER_ID,
+          room: activeRoomCode,
+          name: p.name,
+          level: p.level,
+          gold: p.gold,
+          x: p.x,
+          y: p.y,
+          facing: p.facing,
+          shirtColor: p.shirtColor || '#ef4444',
+          hatColor: p.hatColor || '#facc15',
+        };
+        session.sendPosition(payload);
+        if (tickCount % 24 === 0) {
+          session.updatePresence(payload);
+        }
+      }
+      // Remove disconnected real peers (> 14s silent)
       const now = Date.now();
       remoteFarmersRef.current = remoteFarmersRef.current.filter(
-        (f) => !f.isRealPlayer || now - f.lastSeen < 5500
+        (f) => !f.isRealPlayer || now - f.lastSeen < 14000
       );
-    }, 180);
+    }, 110);
 
     return () => {
       window.clearInterval(pingInterval);
-      ch.close();
-      channelRef.current = null;
+      session.stop();
+      rtSessionRef.current = null;
     };
-  }, [started]);
+  }, [activeRoomCode, forceUiSync, showToast, spawnFloatingText, spawnParticles, started]);
 
   const handleTileAction = useCallback(
     (tx: number, ty: number) => {
@@ -881,6 +969,12 @@ export default function App() {
         setModal({ type: 'help' });
       } else if (k === 'f') {
         handleToggleFullscreen();
+      } else if (k === 't') {
+        soundEngine.playClick();
+        setChatOpen((o) => {
+          if (!o) setUnreadChat(0);
+          return !o;
+        });
       } else if (k >= '1' && k <= '9') {
         const idx = Number(k) - 1;
         if (idx < HOTBAR_SLOTS.length) {
@@ -991,12 +1085,28 @@ export default function App() {
               }
             }
 
-            // Autonomous AI Players actively farming, trading & exploring across the Valley!
+            // Tick local player speech bubble & emote timers
+            if ((state.player.chatBubbleTimer ?? 0) > 0) {
+              state.player.chatBubbleTimer = Math.max(0, (state.player.chatBubbleTimer ?? 0) - dt);
+            }
+            if ((state.player.emoteTimer ?? 0) > 0) {
+              state.player.emoteTimer = Math.max(0, (state.player.emoteTimer ?? 0) - dt);
+            }
+
+            // Autonomous AI Players + Smooth Lerp for Real Online Players!
             for (const rf of remoteFarmersRef.current) {
               if ((rf.emoteTimer ?? 0) > 0) {
                 rf.emoteTimer = Math.max(0, (rf.emoteTimer ?? 0) - dt);
               }
-              if (rf.isRealPlayer) continue;
+              if ((rf.chatBubbleTimer ?? 0) > 0) {
+                rf.chatBubbleTimer = Math.max(0, (rf.chatBubbleTimer ?? 0) - dt);
+              }
+              if (rf.isRealPlayer) {
+                // Smooth 60 FPS movement interpolation for real remote players!
+                rf.x += (rf.targetX - rf.x) * Math.min(1, dt * 11);
+                rf.y += (rf.targetY - rf.y) * Math.min(1, dt * 11);
+                continue;
+              }
 
               rf.aiTimer = (rf.aiTimer ?? 5) - dt;
               const dx = rf.targetX - rf.x;
@@ -1220,24 +1330,11 @@ export default function App() {
       }
     }
 
-    // 1.5. Click on AI / Online Farmers to wave & earn friendly co-op bonus!
+    // 1.5. Click on ANY Online or AI Farmer to open Meet / Trade / Gift / Wave panel!
     for (const rf of remoteFarmersRef.current) {
-      if (Math.hypot(wx - rf.x, wy - (rf.y - 0.35)) < 1.0) {
-        rf.emote = '👋';
-        rf.emoteTimer = 2.8;
-        soundEngine.playHarvest();
-        spawnParticles(rf.x - 0.5, rf.y - 0.6, '#f472b6', 6, 'heart');
-        if (!rf.wavedToday) {
-          rf.wavedToday = true;
-          state.player.gold += 20;
-          state.stats.goldEarned += 20;
-          spawnFloatingText(rf.x - 0.5, rf.y - 1.0, `👋 ${rf.name}: +20g!`, '#fde047');
-          showToast(`🤖 ${rf.name} (${rf.activity || 'Farmer'}) waved back! +20g friendly bonus!`);
-          saveGame(state);
-          forceUiSync();
-        } else {
-          spawnFloatingText(rf.x - 0.5, rf.y - 1.0, `👋 Hi from ${rf.name}!`, '#93c5fd');
-        }
+      if (Math.hypot(wx - rf.x, wy - (rf.y - 0.35)) < 1.05) {
+        soundEngine.playClick();
+        setModal({ type: 'player_interact', farmerId: rf.id });
         return;
       }
     }
@@ -1410,8 +1507,13 @@ export default function App() {
   };
 
   const handleUpdateProfile = (name: string, roomCode: string) => {
+    const cleanRoom = roomCode.trim().toUpperCase() || 'VALLEY-01';
     stateRef.current.player.name = name;
-    stateRef.current.player.roomCode = roomCode;
+    stateRef.current.player.roomCode = cleanRoom;
+    if (cleanRoom !== activeRoomCode) {
+      remoteFarmersRef.current = remoteFarmersRef.current.filter((f) => !f.isRealPlayer);
+      setActiveRoomCode(cleanRoom);
+    }
     saveGame(stateRef.current);
     forceUiSync();
   };
@@ -1421,32 +1523,98 @@ export default function App() {
     const cleaned = isPluginEnabled(adminConfigRef.current, 'realtime_chat_filter')
       ? text.replace(/\b(spam|scam|hack)\b/gi, '***')
       : text;
+    p.chatBubble = cleaned;
+    p.chatBubbleTimer = 4.6;
     setChatMessages((prev) => [
-      ...prev.slice(-24),
+      ...prev.slice(-28),
       { id: `self_${Date.now()}`, sender: p.name, text: cleaned, time: nowTimeStr() },
     ]);
-    channelRef.current?.postMessage({
-      type: 'chat',
-      peerId: SESSION_PEER_ID,
-      room: p.roomCode,
-      sender: p.name,
-      text: cleaned,
-    });
+    rtSessionRef.current?.sendChat(p.name, cleaned);
     sendCloudChatMessage(p.roomCode, p.name, cleaned).catch(() => {});
     soundEngine.playClick();
   };
 
-  const handleWaveEmote = () => {
+  const handleSendEmote = (emote: string) => {
     const p = stateRef.current.player;
-    spawnFloatingText(p.x - 0.5, p.y - 1.1, '👋 Hello!', '#fde047');
-    channelRef.current?.postMessage({
-      type: 'emote',
-      peerId: SESSION_PEER_ID,
-      room: p.roomCode,
-      emote: '👋',
-    });
+    p.emote = emote;
+    p.emoteTimer = 2.8;
+    spawnParticles(p.x - 0.5, p.y - 0.6, '#fde047', 6, 'sparkle');
+    rtSessionRef.current?.sendEmote(p.name, emote);
     soundEngine.playHarvest();
+  };
+
+  const handleWaveEmote = () => {
+    handleSendEmote('👋');
     showToast('👋 Waved to farmers in the Valley!');
+  };
+
+  const handleWaveAtFarmer = (rf: RemoteFarmer) => {
+    const st = stateRef.current;
+    handleSendEmote('👋');
+    rf.emote = '👋';
+    rf.emoteTimer = 2.8;
+    spawnParticles(rf.x - 0.5, rf.y - 0.6, '#f472b6', 8, 'heart');
+    if (!rf.wavedToday) {
+      rf.wavedToday = true;
+      st.player.gold += 20;
+      st.stats.goldEarned += 20;
+      spawnFloatingText(rf.x - 0.5, rf.y - 1.0, `👋 ${rf.name}: +20g!`, '#fde047');
+      showToast(`👋 Waved at ${rf.name}! +20g co-op bonus!`);
+      saveGame(st);
+      forceUiSync();
+    } else {
+      showToast(`👋 Waved at ${rf.name}!`);
+    }
+  };
+
+  const handleGiftGoldToFarmer = (rf: RemoteFarmer, amount: number) => {
+    const st = stateRef.current;
+    if (st.player.gold < amount) return;
+    st.player.gold -= amount;
+    rf.gold = (rf.gold ?? 500) + amount;
+    rf.emote = '💰';
+    rf.emoteTimer = 3.0;
+    soundEngine.playCoin();
+    spawnParticles(rf.x - 0.5, rf.y - 0.6, '#facc15', 12, 'sparkle');
+    if (rf.isRealPlayer) {
+      rtSessionRef.current?.sendGift({
+        fromName: st.player.name,
+        toPeerId: rf.id,
+        kind: 'gold',
+        amount,
+      });
+    } else {
+      rf.chatBubble = `Thanks for ${amount}g, ${st.player.name}! 💛`;
+      rf.chatBubbleTimer = 4.2;
+    }
+    saveGame(st);
+    showToast(`💰 Sent ${amount}g gift to ${rf.name}!`);
+    forceUiSync();
+  };
+
+  const handleGiftItemToFarmer = (rf: RemoteFarmer, itemId: ItemId) => {
+    const st = stateRef.current;
+    if ((st.inventory[itemId] ?? 0) <= 0) return;
+    addItem(st, itemId, -1);
+    rf.emote = '🎁';
+    rf.emoteTimer = 3.0;
+    soundEngine.playHarvest();
+    spawnParticles(rf.x - 0.5, rf.y - 0.6, '#f472b6', 10, 'heart');
+    if (rf.isRealPlayer) {
+      rtSessionRef.current?.sendGift({
+        fromName: st.player.name,
+        toPeerId: rf.id,
+        kind: 'item',
+        itemId,
+        qty: 1,
+      });
+    } else {
+      rf.chatBubble = `Love this ${ITEM_NAMES[st.language][itemId]}! ♥`;
+      rf.chatBubbleTimer = 4.2;
+    }
+    saveGame(st);
+    showToast(`🎁 Gifted ${ITEM_NAMES[st.language][itemId]} to ${rf.name}!`);
+    forceUiSync();
   };
 
   const handleHelpNeighbor = (neighborId: string) => {
@@ -1602,6 +1770,15 @@ export default function App() {
           soundEngine.playClick();
           setModal({ type: 'levels' });
         }}
+        chatOpen={chatOpen}
+        unreadChat={unreadChat}
+        onToggleChat={() => {
+          soundEngine.playClick();
+          setChatOpen((o) => {
+            if (!o) setUnreadChat(0);
+            return !o;
+          });
+        }}
         onClickAd={handleClickAd}
         onSleep={handleSleep}
         onToggleMute={handleToggleMute}
@@ -1694,6 +1871,36 @@ export default function App() {
           }}
         />
       )}
+
+      <LiveChatOverlay
+        open={chatOpen && !modal}
+        roomCode={activeRoomCode}
+        rtStatus={rtStatus}
+        realPlayerCount={remoteFarmersRef.current.filter((f) => f.isRealPlayer).length + 1}
+        messages={chatMessages}
+        onSendChat={handleSendChat}
+        onSendEmote={handleSendEmote}
+        onClose={() => setChatOpen(false)}
+      />
+
+      {modal?.type === 'player_interact' && (() => {
+        const target = remoteFarmersRef.current.find((f) => f.id === modal.farmerId);
+        if (!target) return null;
+        return (
+          <PlayerInteractModal
+            state={stateRef.current}
+            farmer={target}
+            onWave={handleWaveAtFarmer}
+            onGiftGold={handleGiftGoldToFarmer}
+            onGiftItem={handleGiftItemToFarmer}
+            onQuickGreet={(f) => {
+              handleSendChat(`Hey ${f.name}! 👋`);
+              setChatOpen(true);
+            }}
+            onClose={() => setModal(null)}
+          />
+        );
+      })()}
 
       {modal?.type === 'day_summary' && (
         <DaySummaryModal

@@ -182,6 +182,8 @@ export interface RemoteFarmer {
   isRealPlayer: boolean;
   emote?: string;
   emoteTimer?: number;
+  chatBubble?: string;
+  chatBubbleTimer?: number;
   lastSeen: number;
 }
 
@@ -237,6 +239,10 @@ export interface PlayerState {
   toolTiers: Record<ToolId, ToolTier>;
   actionAnimTimer: number;
   actionTool: ToolId | 'hand' | null;
+  emote?: string;
+  emoteTimer?: number;
+  chatBubble?: string;
+  chatBubbleTimer?: number;
 }
 
 export interface DaySummary {
