@@ -10,6 +10,7 @@ import {
   Map,
   Maximize2,
   Megaphone,
+  Menu,
   MessageCircle,
   Minimize2,
   Moon,
@@ -101,6 +102,7 @@ export const HUD: React.FC<HUDProps> = ({
   onGoHome,
 }) => {
   const [dismissedAd, setDismissedAd] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { player, language } = state;
   const hudAd = !dismissedAd
     ? adminConfig.ads.find((a) => a.active && a.placement === 'game_hud_pill')
@@ -131,102 +133,82 @@ export const HUD: React.FC<HUDProps> = ({
   return (
     <>
       <div className="hud-layer">
-        {/* TOP ROW */}
+        {/* TOP ROW (Mobile-First Compact HUD) */}
         <div className="hud-top">
           {/* Top Left: Player Stats & Clickable Level Badge */}
-          <div className="hud-card hud-interactive" style={{ minWidth: 220 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
-              <div>
-                <div className="font-display" style={{ fontSize: 15, fontWeight: 700, color: '#fde047' }}>
-                  {player.name}
-                </div>
-                <div style={{ fontSize: 10.5, color: '#d6d3d1', fontWeight: 700 }}>
-                  {getLevelTitle(language, player.level)}
-                </div>
+          <div className="hud-card hud-player-card hud-interactive">
+            <div className="hud-player-header">
+              <div className="hud-player-identity">
+                <div className="font-display hud-player-name">{player.name}</div>
+                <div className="hud-player-rank">{getLevelTitle(language, player.level)}</div>
               </div>
               <button
                 onClick={onOpenLevels}
                 title={t(language, 'levels')}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  background: '#eab308',
-                  color: '#422006',
-                  fontWeight: 800,
-                  fontSize: 11,
-                  padding: '4px 9px',
-                  borderRadius: 999,
-                  border: '1.5px solid #fef08a',
-                  cursor: 'pointer',
-                }}
+                className="hud-lv-badge"
               >
-                <Award size={12} /> {t(language, 'level')} {player.level}
+                <Award size={11} /> {t(language, 'level')} {player.level}
               </button>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-              <Zap size={13} color="#4ade80" />
-              <div className="bar-track" style={{ flex: 1 }}>
-                <div
-                  className="bar-fill"
-                  style={{
-                    width: `${staminaPct}%`,
-                    background:
-                      staminaPct < 25
-                        ? 'linear-gradient(90deg, #ef4444, #f97316)'
-                        : 'linear-gradient(90deg, #22c55e, #86efac)',
-                  }}
-                />
+            <div className="hud-bars-wrap">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Zap size={12} color="#4ade80" />
+                <div className="bar-track" style={{ flex: 1 }}>
+                  <div
+                    className="bar-fill"
+                    style={{
+                      width: `${staminaPct}%`,
+                      background:
+                        staminaPct < 25
+                          ? 'linear-gradient(90deg, #ef4444, #f97316)'
+                          : 'linear-gradient(90deg, #22c55e, #86efac)',
+                    }}
+                  />
+                </div>
+                <span className="hud-bar-num">
+                  {Math.round(player.stamina)}/{player.maxStamina}
+                </span>
               </div>
-              <span style={{ fontSize: 10.5, fontWeight: 700, minWidth: 42, textAlign: 'end' }}>
-                {Math.round(player.stamina)}/{player.maxStamina}
-              </span>
-            </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }} onClick={onOpenLevels}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: '#93c5fd', width: 13 }}>XP</span>
-              <div className="bar-track" style={{ flex: 1, height: 7 }}>
-                <div
-                  className="bar-fill"
-                  style={{
-                    width: `${xpPct}%`,
-                    background: 'linear-gradient(90deg, #3b82f6, #60a5fa)',
-                  }}
-                />
+              <div className="hud-xp-row" onClick={onOpenLevels}>
+                <span style={{ fontSize: 9.5, fontWeight: 800, color: '#93c5fd', width: 12 }}>XP</span>
+                <div className="bar-track" style={{ flex: 1, height: 6 }}>
+                  <div
+                    className="bar-fill"
+                    style={{
+                      width: `${xpPct}%`,
+                      background: 'linear-gradient(90deg, #3b82f6, #60a5fa)',
+                    }}
+                  />
+                </div>
+                <span className="hud-bar-num" style={{ color: '#cbd5e1' }}>
+                  {player.level >= MAX_LEVEL ? 'MAX' : `${player.xp}/${player.xpToNext}`}
+                </span>
               </div>
-              <span style={{ fontSize: 10, color: '#cbd5e1', minWidth: 42, textAlign: 'end' }}>
-                {player.level >= MAX_LEVEL ? 'MAX' : `${player.xp}/${player.xpToNext}`}
-              </span>
             </div>
           </div>
 
-          {/* Top Center: Day / Time / Weather / Sleep / Language / Home */}
-          <div
-            className="rpg-pill hud-interactive"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 9,
-              padding: '7px 13px',
-              flexWrap: 'wrap',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          {/* Top Center: Day / Time / Weather / Sleep + Utility Icons */}
+          <div className="rpg-pill hud-clock-pill hud-interactive" style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {state.weather === 'sunny' ? (
-                <Sun size={17} color="#fde047" />
+                <Sun size={15} color="#fde047" />
               ) : (
-                <CloudRain size={17} color="#7dd3fc" />
+                <CloudRain size={15} color="#7dd3fc" />
               )}
-              <span className="font-display" style={{ fontWeight: 700, fontSize: 14 }}>
-                {t(language, 'day')} {state.day}
+              <span className="font-display" style={{ fontWeight: 700, fontSize: 13 }}>
+                <span className="hud-desktop-only">{t(language, 'day')} </span>
+                <span className="hud-mobile-only">D</span>
+                {state.day}
               </span>
             </div>
             <span style={{ opacity: 0.35 }}>|</span>
-            <span style={{ fontWeight: 700, fontSize: 13, color: '#fef08a' }}>
+            <span style={{ fontWeight: 700, fontSize: 12.5, color: '#fef08a', whiteSpace: 'nowrap' }}>
               {formatClock(state.timeOfDay)}
             </span>
             <span
+              className="hud-desktop-only"
               style={{
                 fontSize: 10.5,
                 fontWeight: 700,
@@ -240,6 +222,7 @@ export const HUD: React.FC<HUDProps> = ({
             </span>
             <button
               onClick={onSleep}
+              title={t(language, 'sleep')}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -248,176 +231,160 @@ export const HUD: React.FC<HUDProps> = ({
                 color: '#fff',
                 border: '1px solid #818cf8',
                 borderRadius: 999,
-                padding: '4px 9px',
-                fontSize: 11.5,
+                padding: '3px 8px',
+                fontSize: 11,
                 fontWeight: 700,
                 cursor: 'pointer',
               }}
             >
-              <Moon size={12} /> {t(language, 'sleep')}
+              <Moon size={12} /> <span className="hud-desktop-only">{t(language, 'sleep')}</span>
             </button>
+
+            {/* Desktop utility icons */}
+            <div className="hud-util-desktop">
+              <button
+                onClick={cycleLang}
+                title="Switch Language (EN / FR / العربية)"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: 'rgba(255,255,255,0.14)',
+                  color: '#fefce8',
+                  border: '1px solid rgba(255,255,255,0.28)',
+                  borderRadius: 999,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                <Globe size={12} /> {language.toUpperCase()}
+              </button>
+              <button
+                title={state.muted ? 'Unmute' : 'Mute'}
+                onClick={onToggleMute}
+                style={{ background: 'transparent', border: 'none', color: '#fefce8', cursor: 'pointer', padding: 2, display: 'flex' }}
+              >
+                {state.muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+              </button>
+              <button
+                title={isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'}
+                onClick={onToggleFullscreen}
+                style={{ background: 'transparent', border: 'none', color: '#86efac', cursor: 'pointer', padding: 2, display: 'flex' }}
+              >
+                {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+              <button
+                title="Help (H)"
+                onClick={onOpenHelp}
+                style={{ background: 'transparent', border: 'none', color: '#fef08a', cursor: 'pointer', padding: 2, display: 'flex' }}
+              >
+                <HelpCircle size={16} />
+              </button>
+              <button
+                title={t(language, 'backHome')}
+                onClick={onGoHome}
+                style={{ background: 'transparent', border: 'none', color: '#fed7aa', cursor: 'pointer', padding: 2, display: 'flex' }}
+              >
+                <Home size={16} />
+              </button>
+            </div>
+
+            {/* Mobile compact menu toggle (keeps top bar tiny!) */}
             <button
-              onClick={cycleLang}
-              title="Switch Language (EN / FR / العربية)"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                background: 'rgba(255,255,255,0.14)',
-                color: '#fefce8',
-                border: '1px solid rgba(255,255,255,0.28)',
-                borderRadius: 999,
-                padding: '3px 8px',
-                fontSize: 11,
-                fontWeight: 800,
-                cursor: 'pointer',
-              }}
+              className="hud-mobile-menu-btn"
+              onClick={() => setMobileMenuOpen((v) => !v)}
+              title="Settings & Fullscreen"
             >
-              <Globe size={12} /> {language.toUpperCase()}
+              <Menu size={15} />
             </button>
-            <button
-              title={state.muted ? 'Unmute' : 'Mute'}
-              onClick={onToggleMute}
-              style={{ background: 'transparent', border: 'none', color: '#fefce8', cursor: 'pointer', padding: 2, display: 'flex' }}
-            >
-              {state.muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-            </button>
-            <button
-              title={isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'}
-              onClick={onToggleFullscreen}
-              style={{ background: 'transparent', border: 'none', color: '#86efac', cursor: 'pointer', padding: 2, display: 'flex' }}
-            >
-              {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
-            <button
-              title="Help (H)"
-              onClick={onOpenHelp}
-              style={{ background: 'transparent', border: 'none', color: '#fef08a', cursor: 'pointer', padding: 2, display: 'flex' }}
-            >
-              <HelpCircle size={16} />
-            </button>
-            <button
-              title={t(language, 'backHome')}
-              onClick={onGoHome}
-              style={{ background: 'transparent', border: 'none', color: '#fed7aa', cursor: 'pointer', padding: 2, display: 'flex' }}
-            >
-              <Home size={16} />
-            </button>
+
+            {mobileMenuOpen && (
+              <div className="hud-mobile-popover">
+                <button onClick={() => { onToggleFullscreen(); setMobileMenuOpen(false); }}>
+                  {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+                </button>
+                <button onClick={() => { cycleLang(); setMobileMenuOpen(false); }}>
+                  <Globe size={14} />
+                  <span>Lang: {language.toUpperCase()}</span>
+                </button>
+                <button onClick={() => { onToggleMute(); setMobileMenuOpen(false); }}>
+                  {state.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                  <span>{state.muted ? 'Unmute' : 'Mute'}</span>
+                </button>
+                <button onClick={() => { onOpenHelp(); setMobileMenuOpen(false); }}>
+                  <HelpCircle size={14} />
+                  <span>Guide</span>
+                </button>
+                <button onClick={() => { onGoHome(); setMobileMenuOpen(false); }}>
+                  <Home size={14} />
+                  <span>{t(language, 'backHome')}</span>
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Top Right: Gold + Action Buttons */}
-          <div
-            style={{ display: 'flex', alignItems: 'center', gap: 6, marginInlineStart: 'auto', flexWrap: 'wrap' }}
-            className="hud-interactive"
-          >
-            <div
-              className="rpg-pill"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 13px',
-                fontWeight: 800,
-                fontSize: 15,
-                color: '#fde047',
-              }}
-            >
-              <Coins size={16} color="#facc15" />
+          {/* Top Right: Gold + Compact Action Buttons */}
+          <div className="hud-actions-bar hud-interactive">
+            <div className="rpg-pill hud-gold-pill">
+              <Coins size={14} color="#facc15" />
               {player.gold.toLocaleString()}g
             </div>
 
             <button
-              className="rpg-btn rpg-btn-indigo"
-              style={{ padding: '6px 10px', fontSize: 12 }}
+              className="rpg-btn rpg-btn-indigo hud-action-btn"
               onClick={onOpenMap}
               title="Multiplayer Valley Map (G)"
             >
               <Map size={15} />
-              {t(language, 'map')} ({onlineCount})
+              <span className="hud-btn-label">{t(language, 'map')}</span>
+              <span className="hud-count-mini">{onlineCount}</span>
             </button>
 
             <button
-              className={`rpg-btn ${chatOpen ? 'rpg-btn-primary' : 'rpg-btn-neutral'}`}
-              style={{ padding: '6px 10px', fontSize: 12, position: 'relative' }}
+              className={`rpg-btn ${chatOpen ? 'rpg-btn-primary' : 'rpg-btn-neutral'} hud-action-btn`}
+              style={{ position: 'relative' }}
               onClick={onToggleChat}
               title="Live Multiplayer Chat (T)"
             >
               <MessageCircle size={15} />
-              Chat
+              <span className="hud-btn-label">Chat</span>
               {!chatOpen && unreadChat > 0 && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: -6,
-                    right: -6,
-                    minWidth: 18,
-                    height: 18,
-                    padding: '0 4px',
-                    borderRadius: 999,
-                    background: '#ef4444',
-                    color: '#fff',
-                    fontSize: 10,
-                    fontWeight: 800,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    border: '2px solid #fff',
-                  }}
-                >
-                  {unreadChat > 9 ? '9+' : unreadChat}
-                </span>
+                <span className="hud-notif-dot">{unreadChat > 9 ? '9+' : unreadChat}</span>
               )}
             </button>
 
             <button
-              className="rpg-btn rpg-btn-warm"
-              style={{ padding: '6px 10px', fontSize: 12, position: 'relative' }}
+              className="rpg-btn rpg-btn-warm hud-action-btn"
+              style={{ position: 'relative' }}
               onClick={onOpenQuests}
               title="Quests (Q)"
             >
               <ScrollText size={15} />
-              {t(language, 'quests')}
+              <span className="hud-btn-label">{t(language, 'quests')}</span>
               {readyQuests > 0 && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: -6,
-                    right: -6,
-                    width: 19,
-                    height: 19,
-                    borderRadius: '50%',
-                    background: '#16a34a',
-                    color: '#fff',
-                    fontSize: 11,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    border: '2px solid #fff',
-                  }}
-                >
-                  {readyQuests}
-                </span>
+                <span className="hud-notif-dot" style={{ background: '#16a34a' }}>{readyQuests}</span>
               )}
             </button>
 
             <button
-              className="rpg-btn rpg-btn-neutral"
-              style={{ padding: '6px 10px', fontSize: 12 }}
+              className="rpg-btn rpg-btn-neutral hud-action-btn"
               onClick={onOpenBag}
               title="Bag (B)"
             >
               <Backpack size={15} />
-              {t(language, 'bag')}
+              <span className="hud-btn-label">{t(language, 'bag')}</span>
             </button>
 
             <button
-              className="rpg-btn rpg-btn-gold"
-              style={{ padding: '6px 10px', fontSize: 12 }}
+              className="rpg-btn rpg-btn-gold hud-action-btn"
               onClick={onOpenShop}
               title="Market (M)"
             >
               <Store size={15} />
-              {t(language, 'market')}
+              <span className="hud-btn-label">{t(language, 'market')}</span>
             </button>
           </div>
         </div>
@@ -501,6 +468,7 @@ export const HUD: React.FC<HUDProps> = ({
           )}
 
           <div
+            className="hud-selected-label"
             style={{
               background: 'rgba(28, 25, 23, 0.8)',
               color: '#fefce8',

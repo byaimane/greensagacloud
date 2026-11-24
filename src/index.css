@@ -1444,3 +1444,281 @@ button:focus {
 .live-chat-input:focus {
   border-color: #fde047;
 }
+
+/* ================= RESPONSIVE COMPACT MOBILE HUD (MORE PLAYGROUND!) ================= */
+.hud-player-card {
+  min-width: 210px;
+}
+
+.hud-player-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.hud-player-name {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #fde047;
+  line-height: 1.15;
+}
+
+.hud-player-rank {
+  font-size: 10.5px;
+  color: #d6d3d1;
+  font-weight: 700;
+}
+
+.hud-lv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #eab308;
+  color: #422006;
+  font-weight: 800;
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1.5px solid #fef08a;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hud-bars-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hud-xp-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.hud-bar-num {
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 38px;
+  text-align: end;
+}
+
+.hud-clock-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+}
+
+.hud-util-desktop {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.hud-mobile-only,
+.hud-mobile-menu-btn {
+  display: none;
+}
+
+.hud-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+
+.hud-gold-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  font-weight: 800;
+  font-size: 14px;
+  color: #fde047;
+  white-space: nowrap;
+}
+
+.hud-action-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.hud-count-mini {
+  font-size: 10.5px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0 5px;
+  border-radius: 999px;
+}
+
+.hud-notif-dot {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #fff;
+}
+
+.hud-mobile-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: rgba(28, 25, 23, 0.95);
+  border: 2px solid rgba(254, 240, 138, 0.45);
+  border-radius: 14px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+  z-index: 40;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45);
+}
+
+.hud-mobile-popover button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 9px;
+  padding: 7px 10px;
+  color: #fefce8;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: start;
+}
+
+.hud-mobile-popover button:hover {
+  background: rgba(254, 240, 138, 0.22);
+}
+
+/* Mobile & Compact Screens: Ultra-slim top bar maximizing playable playground! */
+@media (max-width: 900px) {
+  .hud-layer {
+    padding: 6px 8px;
+  }
+
+  .hud-top {
+    gap: 5px;
+    align-items: center;
+  }
+
+  .hud-player-card {
+    min-width: auto;
+    padding: 5px 8px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .hud-player-header {
+    margin-bottom: 0;
+  }
+
+  .hud-player-identity,
+  .hud-xp-row,
+  .hud-bar-num,
+  .hud-desktop-only,
+  .hud-util-desktop,
+  .hud-btn-label {
+    display: none !important;
+  }
+
+  .hud-mobile-only {
+    display: inline;
+  }
+
+  .hud-mobile-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 999px;
+    color: #fefce8;
+    width: 26px;
+    height: 26px;
+    cursor: pointer;
+  }
+
+  .hud-bars-wrap .bar-track {
+    width: 52px;
+    height: 7px;
+  }
+
+  .hud-clock-pill {
+    padding: 4px 8px;
+    gap: 6px;
+  }
+
+  .hud-actions-bar {
+    gap: 4px;
+    width: 100%;
+    justify-content: space-between;
+    margin-inline-start: 0;
+  }
+
+  .hud-gold-pill {
+    padding: 4px 9px;
+    font-size: 12.5px;
+  }
+
+  .hud-action-btn {
+    padding: 6px 9px;
+    border-radius: 10px;
+    box-shadow: 0 2px 0 var(--wood-dark);
+  }
+
+  .hud-selected-label {
+    display: none;
+  }
+
+  .hotbar {
+    padding: 5px 6px;
+    gap: 4px;
+    border-radius: 13px;
+  }
+
+  .hotbar-slot {
+    width: 42px;
+    height: 44px;
+    border-radius: 9px;
+  }
+
+  .minimap-radar {
+    width: 96px;
+    height: 58px;
+    right: 8px;
+    bottom: 66px;
+  }
+
+  .fps-telemetry {
+    left: 8px;
+    bottom: 66px;
+    font-size: 10px;
+    padding: 3px 7px;
+  }
+
+  .live-chat-drawer {
+    left: 8px;
+    bottom: 66px;
+    width: min(295px, 92vw);
+  }
+}
